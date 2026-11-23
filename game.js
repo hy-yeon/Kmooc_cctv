@@ -15,7 +15,6 @@ const state = {
 const $ = (id) => document.getElementById(id);
 const el = {
   floor: $("floor-label"),
-  hearts: $("hearts"),
   cctv: $("cctv-screen"),
   cctvTime: $("cctv-time"),
   cctvCam: $("cctv-cam"),

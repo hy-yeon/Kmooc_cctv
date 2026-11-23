@@ -2,7 +2,7 @@
 // scenes.js — CCTV 복도 연출 (PS1 레트로 스타일)
 //  복도를 옆에서 보는 고정 CCTV. 카메라는 복도를 따라 좌우로만 움직인다 (◀ ▶, 화면 끌기, ← →).
 //  이상현상은 숨어 있다: 카메라는 반대편 끝에서 시작하고, 이상현상을 눌러야(pick) 조사가 열린다.
-//  4 · 5 · 7층은 다가가면 갑자기 튀어나온다 (onScare 로 game.js 에 알린다).
+//  4 · 5 · 7층은 다가가면 갑자기 튀어나온다 (onScare 로 game.js 에 알린다). 7층은 증명사진과 다른 도플갱어.
 //  - CctvView.init(container) → CctvView.show(key, floor) → CctvView.pan(±1)
 //  - three.js 로 로우폴리 복도와 동물을 그리고, 저해상도로 렌더링해 크게 늘린다.
 //    꼭짓점 떨림(vertex snapping), 픽셀 텍스처(NearestFilter), 낮은 프레임(20fps)
@@ -325,6 +325,33 @@ const CctvView = (() => {
     return g;
   }
 
+  // 카피바라. fake = true 면 도플갱어: 귀가 뾰족하고, 눈이 하얗게 빛나고, 털이 잿빛이다 (증명사진은 둥근 귀 · 검은 눈 · 갈색)
+  function capybara(fake) {
+    const g = new THREE.Group();
+    const fur = lambert(fake ? 0x8c8070 : 0x9a6b45), dark = lambert(fake ? 0x5e554a : 0x7a5235);
+    const body = new THREE.Group(); g.add(body);
+    put(body, box(0.9, 0.72, 1.4), fur, 0, 0.66, 0);
+    put(body, box(0.7, 0.2, 1.1), dark, 0, 0.36, 0);
+    const head = new THREE.Group(); head.position.set(0, 0.98, 0.82); body.add(head);
+    put(head, box(0.62, 0.56, 0.66), fur);
+    put(head, box(0.52, 0.36, 0.26), dark, 0, -0.08, 0.4);                    // 뭉툭한 코
+    put(head, box(0.06, 0.05, 0.03), basic(BLACK), -0.1, 0.0, 0.54);
+    put(head, box(0.06, 0.05, 0.03), basic(BLACK), 0.1, 0.0, 0.54);
+    const eyeMat = basic(fake ? 0xf4f6ff : BLACK);
+    const eyes = [-1, 1].map((s) => put(head, fake ? box(0.15, 0.13, 0.05) : box(0.1, 0.09, 0.05), eyeMat, s * 0.22, 0.12, 0.31));   // 도플갱어는 눈이 크고 하얗다
+    if (fake) [-1, 1].forEach((s) => { const e = put(head, cone(0.09, 0.34, 4), dark, s * 0.2, 0.42, -0.12); e.rotation.z = -s * 0.25; });   // 뾰족 귀
+    else [-1, 1].forEach((s) => put(head, box(0.14, 0.12, 0.08), dark, s * 0.24, 0.32, -0.12));                                               // 둥근 귀
+    const legs = [[-0.3, 0.5], [0.3, 0.5], [-0.3, -0.5], [0.3, -0.5]].map(([x, z]) => {
+      const p = new THREE.Group(); p.position.set(x, 0.32, z); g.add(p);
+      put(p, box(0.18, 0.34, 0.2), dark, 0, -0.16, 0);
+      return p;
+    });
+    let glow = null;
+    if (fake) { glow = new THREE.PointLight(0xe8f0ff, 0.6, 3, 1.5); glow.position.set(0, 0.1, 0.5); head.add(glow); }
+    g.userData = { body, head, legs, eyes, eyeMat, glow };
+    return g;
+  }
+
   function deer() {
     const g = new THREE.Group();
     const fur = lambert(0xa9713f), light = lambert(0xe9d6b4), horn = lambert(0xd8c9a0);
@@ -365,7 +392,7 @@ const CctvView = (() => {
   };
 
   // 카메라는 이상현상의 반대편 끝에서 시작한다 (-1 왼쪽 끝, +1 오른쪽 끝). 직접 둘러봐야 찾을 수 있다
-  const START = { hamster_clone: 1, gecko_moonwalk: -1, square_cat: -1, honey_bear: -1, neon_hedgehog: 1, koala_small_door: -1, empty_hall: -1, deer_boxes: 1 };
+  const START = { hamster_clone: 1, gecko_moonwalk: -1, square_cat: -1, honey_bear: -1, neon_hedgehog: 1, koala_small_door: -1, doppel_capybara: -1, deer_boxes: 1 };
 
   // 눌러서 "찾았다"가 되는 물체 · 갑자기 튀어나오기(점프 스케어)
   let targets = [], onScare = null, foundHook = null;   // foundHook: 이상현상을 눌렀을 때 (아직 안 튀어나왔으면 바로 튀어나온다)
@@ -552,30 +579,45 @@ const CctvView = (() => {
       };
     },
 
-    // 7층: 텅 빈 복도. 702호 문 앞에 머물면 불이 꺼지고 문이 쾅 열린다 (점프 스케어). 그 뒤로도 문이 혼자 움직인다
-    empty_hall() {
-      const door = doors[1];
-      target(door.hinge);
+    // 7층: 도플갱어 카피바라. 702호로 들어가는데 귀 · 눈 · 털이 증명사진과 다르다.
+    //  가까이 머물면(또는 누르면) 걸음을 멈추고 고개를 홱 돌려 카메라를 본다 (점프 스케어)
+    doppel_capybara(root) {
+      const door = doors[1], DOOR_X = door.x;
+      const k = target(capybara(true));
+      root.add(k);
       const dwell = { t: 0 };
-      let slamAt = null, force = false;
+      let lookAt = null, force = false, cycle0 = 0, resumed = false;
       foundHook = () => { force = true; };
       return (t, dt) => {
-        if (slamAt === null && (force || watching(door.x, 3, dwell, 0.8, dt))) { slamAt = t; scare(); }
-        let lampK = (Math.sin(t * 31) > 0.72 && Math.sin(t * 1.3) > 0.2) ? 0.25 : 1;
-        let open;
-        if (slamAt !== null && t - slamAt < 2.2) {
-          const k = t - slamAt;
-          open = k < 0.08 ? k / 0.08 * 2.8 : 2.8 - Math.min(2.3, (k - 0.08) * 1.1);   // 쾅 열렸다가 천천히 닫힌다
-          if (k < 0.7) lampK = 0;                                                       // 정전
-          lamps.forEach((l) => { l.light.intensity = LAMP * (k < 0.7 ? 0.05 : 1); });
-        } else {
-          const c = t % 11;
-          open = (Math.max(0, Math.min(1, (c - 6) / 1.5)) - Math.max(0, Math.min(1, (c - 9) / 0.4))) * 0.5;
-          lamps.forEach((l, i) => { if (i !== 2) l.light.intensity = LAMP; });
+        const c = (t - cycle0) % 15;               // 15초 주기: 걸어온다 → 문 앞에서 돌아선다 → 들어간다
+        const walk = Math.min(1, c / 7);
+        const enter = Math.max(0, Math.min(1, (c - 8) / 2.5));
+        // 점프 스케어: 걸음을 멈추고 고개를 카메라로
+        if (lookAt === null && k.visible && (force || watching(k.position.x, 2.4, dwell, 0.8, dt))) { lookAt = t; scare(); }
+        const look = lookAt !== null ? t - lookAt : -1;
+        if (look >= 0 && look < 1.6) {
+          k.userData.head.rotation.y = (k.rotation.y === Math.PI ? Math.PI : Math.PI / 2) * (look < 0.06 ? look / 0.06 : look > 1.1 ? 1 - (look - 1.1) / 0.5 : 1);
+          k.userData.eyeMat.color.setRGB(1, look < 1.1 ? 0.15 : 0.9, look < 1.1 ? 0.15 : 0.95);   // 눈이 붉게
+          k.userData.glow.color.setRGB(1, 0.2, 0.2); k.userData.glow.intensity = 2.5;
+          return;
         }
-        lamps[2].light.intensity = LAMP * lampK;
-        lamps[2].mat.color.setRGB(1 * lampK, 0.95 * lampK, 0.77 * lampK);
-        door.hinge.rotation.y = -open;
+        if (look >= 1.6 && !resumed) { cycle0 += 1.6; resumed = true; }   // 멈춘 시간만큼 걸음을 미룬다
+        k.userData.head.rotation.y = 0;
+        k.userData.eyeMat.color.setRGB(0.96, 0.97, 1);
+        k.userData.glow.color.setRGB(0.91, 0.94, 1); k.userData.glow.intensity = 0.6 + Math.sin(t * 3) * 0.2;
+        k.position.set(11 + (DOOR_X + 0.6 - 11) * walk - enter * 0.6, 0, 0.5 + (HALL.back + 0.2 - 0.5) * enter);
+        k.rotation.y = enter > 0 ? Math.PI : -Math.PI / 2;
+        k.scale.setScalar(1.15 * (1 - enter * 0.5));
+        k.visible = c < 10.6;
+        const s = Math.sin(t * 6) * (walk < 1 || enter > 0 ? 1 : 0);
+        k.userData.legs[0].rotation.x = s * 0.4; k.userData.legs[3].rotation.x = s * 0.4;
+        k.userData.legs[1].rotation.x = -s * 0.4; k.userData.legs[2].rotation.x = -s * 0.4;
+        const open = Math.max(0, Math.min(1, (c - 7.4) / 0.8)) - Math.max(0, Math.min(1, (c - 11) / 0.8));
+        door.hinge.rotation.y = -open * 1.3;
+        const flick = (Math.sin(t * 31) > 0.72 && Math.sin(t * 1.3) > 0.2) ? 0.25 : 1;   // 702호 앞 등이 깜빡인다
+        lamps[2].light.intensity = LAMP * flick;
+        lamps[2].mat.color.setRGB(flick, 0.95 * flick, 0.77 * flick);
+        breathe(k, t, 0.02);
       };
     },
 

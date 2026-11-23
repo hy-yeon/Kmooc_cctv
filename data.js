@@ -36,7 +36,7 @@ const RESIDENTS = [
 ];
 
 // ---------- 3) 기록 ----------
-// who: 주민 key (없으면 null = 미등록 출입). 미등록이어도 room 은 직접 적을 수 있음(예: 607).
+// who: 주민 key (없으면 null = 미등록 출입). 미등록이어도 room · animal · rrn 은 직접 적을 수 있음(예: 607호, 7층 도플갱어).
 // 출입 기록: entry / light / sound,  배달 기록: arrive(도착 날짜·시각) / order(주문 날짜) / item
 // id 는 화면에 안 보인다. 층별 근거(FLOORS.evidence)를 가리킬 때 쓴다.
 const ENTRY_LOGS = [
@@ -50,7 +50,8 @@ const ENTRY_LOGS = [
   { id: "E09", who: null,   entry: "11-09 00:40", light: "Off", sound: 9 },   // 4층: 주민 정보 없음 + 소리 최대
   { id: "E10", who: "가시", entry: "11-08 21:00", light: "On",  sound: 2 },   // 5층: 야광 페인트
   { id: "E11", who: null, room: "607", entry: "11-09 03:00", light: "Off", sound: 9 },   // 6층: 없는 호실
-  { id: "E12", who: "바라", entry: "11-09 01:30", light: "On",  sound: 0 },   // 7층: 빛은 있는데 소리는 없음
+  // 7층 도플갱어: 동물 · 호수는 카피바라 702호인데, 주민등록번호가 진짜(200925)와 숫자 하나가 바뀌었다. 눈이 빛나서 빛감지 On, 발소리 0
+  { id: "E12", who: null, room: "702", animal: "카피바라", rrn: "200952-3******", entry: "11-09 01:30", light: "On", sound: 0 },
   { id: "E54", who: "루돌", entry: "11-07 18:17", light: "Off", sound: 3 },   // 8층: 사슴의 첫 출입 (이삿짐 도착 날)
   { id: "E55", who: "루돌", entry: "11-08 17:12", light: "Off", sound: 3 },
   { id: "E53", who: "루돌", entry: "11-08 18:14", light: "Off", sound: 1 },
@@ -109,7 +110,7 @@ const ENTRY_ROWS = ENTRY_LOGS.map((l) => {
   return {
     id: l.id, who: l.who,
     출입시간: l.entry, 빛감지: l.light, 소리: l.sound,
-    호수: r ? r.room : l.room ?? null, 동물: r ? r.animal : null, 주민등록번호: r ? r.rrn : null,
+    호수: r ? r.room : l.room ?? null, 동물: r ? r.animal : l.animal ?? null, 주민등록번호: r ? r.rrn : l.rrn ?? null,
     출입시: Number(l.entry.slice(6, 8)),
   };
 }).sort((a, b) => (a.출입시간 < b.출입시간 ? -1 : a.출입시간 > b.출입시간 ? 1 : a.id < b.id ? -1 : 1));
@@ -200,14 +201,14 @@ const FLOORS = [
   },
   {
     floor: 7,
-    anomaly: "텅 빈 복도",
-    cctvScene: "empty_hall",
+    anomaly: "증명사진과 다른 카피바라",
+    cctvScene: "doppel_capybara",
     cctvTime: "11-09 01:30",
-    cctvCaption: "아무도 없다. ...정말로?",
+    cctvCaption: "702호로 카피바라가 들어간다. 그런데… 저 귀, 원래 저렇게 생겼던가?",
     answer: "report",
-    evidence: ["E12"],
+    evidence: ["E12", "E78", "E79"],
     explanation:
-      "01:30에 702호 카피바라의 출입 기록이 있고 빛감지도 On인데, 영상에는 아무도 없어요. 택배장부엔 702호 기록이 없어서 빛을 설명해 줄 것도 없어요. 데이터는 '누군가 있었다'고 하는데 영상은 '없다'고 하니 불일치 → REPORT",
+      "영상 속 카피바라는 귀가 뾰족하고 눈이 하얗게 빛나요. 증명사진 속 702호 카피바라는 귀가 둥글어요. 01:30 출입 기록의 주민등록번호도 200952로, 진짜 주민(200925)과 숫자가 뒤바뀌어 있어요. 사진도 번호도 맞지 않는 도플갱어 → REPORT",
   },
   {
     floor: 8,

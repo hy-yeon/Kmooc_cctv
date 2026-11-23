@@ -2,8 +2,8 @@
 // investigate.js — 조사 흐름 (설계: design/flow-investigator.md)
 //   ① 조사: 책(출입표 · 택배장부)을 열고, 드롭다운으로 렌즈 문장을 골라 기록을 필터링한다
 //           아래 고급 모드에서는 pandas 코드를 직접 써서 실행할 수 있다 (advanced.js)
-//   ② 잇기: REPORT 보드의 빈칸을 드롭다운으로 채우고 확인한다 (확인 3회, "2개 이하 틀림" 피드백)
-//   ③ 판정: ✓ 정상 / ✗ 신고 도장. 맞았는지는 바로 알려 주지 않는다 → 두 층 뒤 결과(경고장), 정산서에서 공개
+//   ② 잇기: 장부 포스트잇을 📌 꽂아 와서, REPORT 보드의 "영상 단서" 카드와 실로 잇는다 (= 설명됨 / ≠ 어긋남, 확인 3회)
+//   ③ 판정: ✓ 정상 / ✗ 신고 도장. 맞았는지는 바로 알려 주지 않는다 → 정산서에서 공개
 //   ④ 풀이: 내가 쓴 렌즈가 pandas 코드로 나온다
 //   마지막: 경비 보고서(그래프 + 내 ✗ 도장) → 큰 미스터리 보드 → 정산서
 // game.js 의 mk / $ / el / openModal / closeModal / currentFloor / proceed / restart / chartSvg / sentenceLine 을 쓴다.
@@ -11,8 +11,6 @@
 
 const Inv = (() => {
   const MAX_CHECKS = 3;          // 보드마다 확인 횟수
-  const FIRE_AT = 3;             // 경고장 3장이면 해고
-  const RESULT_DELAY = 2;        // 오판의 결과는 두 층 뒤에 돌아온다
   const NUMERIC = ["소리"];                       // 숫자 열
   const ORDERED = ["출입시간", "배달도착날짜", "배달주문날짜"];   // 순서가 있는 글자 열 (크기 비교 가능)
   const NULL = "비어 있음";      // 드롭다운에서 빈 값(NaN)을 뜻하는 보기
@@ -21,9 +19,9 @@ const Inv = (() => {
   let s = null;                  // 이 층(또는 미스터리)의 조사 상태
   let night = null;              // 밤 전체 상태
 
-  const freshNight = () => ({ log: [], warnings: 0, pending: [], fired: false, mystery: null, chart: null });
+  const freshNight = () => ({ log: [], mystery: null, chart: null });
   const freshBoard = () => ({ board: {}, checksLeft: MAX_CHECKS, checksUsed: 0, feedback: "", solved: false, firstTry: null });
-  const freshFloor = (floor) => Object.assign(freshBoard(), { floor, lenses: [], stamp: null, lensDraft: {}, found: false });
+  const freshFloor = (floor) => Object.assign(freshBoard(), { floor, lenses: [], stamp: null, lensDraft: {}, found: false, pins: [], links: {} });
 
   // ---------- 받침에 맞는 조사 ----------
   function hasBatchim(word) {
@@ -188,7 +186,7 @@ const Inv = (() => {
   const TYPE_EXPLAIN = {
     cmp: [["df['열'] == 값", "열의 값이 같은지 줄마다 검사해요. 다르면 !=, 크거나 같으면 >=, 작거나 같으면 <= 예요."],
           ["(조건1) & (조건2)", "& 는 '이고', | 는 '이거나'예요. 조건마다 괄호로 묶어요."],
-          ["df[ 검사 ]", "검사를 통과한 줄만 남겨요. 이게 필터링 조건이예요."]],
+          ["df[ 검사 ]", "검사를 통과한 줄만 남겨요. 이게 렌즈예요."]],
     unique: [[".unique()", "같은 값은 한 번만, 어떤 값들이 있는지 목록으로 보여 줘요."]],
     null: [[".isnull() / .notnull()", "칸이 비어 있으면(NaN) 참 / 값이 있으면 참이에요. 빈 줄을 지우는 .dropna()도 있지만, 지우면 단서도 사라져요."]],
     isin: [[".isin([값, 값])", "목록 안에 들어 있는 값이면 참이에요."]],
@@ -286,6 +284,13 @@ const Inv = (() => {
   function postitEl(table, r) {
     const spec = POSTIT[table.key];
     const note = mk("div", "postit");
+    if (s && !s.mysteryMode) {
+      const pin = mk("button", "pin-btn"); pin.type = "button";
+      pin.dataset.pin = r.id;
+      paintPin(pin);
+      pin.addEventListener("click", (e) => { e.stopPropagation(); togglePin(table, r); });
+      note.appendChild(pin);
+    }
     note.appendChild(mk("b", "pi-main" + (isNull(r[spec.main]) ? " na" : ""), fmt(r[spec.main])));
     spec.rest.forEach((c) => {
       const v = r[c];
@@ -304,7 +309,9 @@ const Inv = (() => {
     const who = mk("div", "cn-who");
     const sticker = mk("span", "cn-photo");
     sticker.innerHTML = portraitSvg(r.동물);
-    who.append(sticker, mk("span", "cn-name" + (isNull(r.동물) ? " na" : ""), `${isNull(r.동물) ? "미등록" : r.동물} · ${isNull(r.호수) ? "호수 없음" : r.호수 + "호"}`));
+    const name = mk("span", "cn-name" + (isNull(r.동물) ? " na" : ""), `${isNull(r.동물) ? "미등록" : r.동물} · ${isNull(r.호수) ? "호수 없음" : r.호수 + "호"}`);
+    if (table.key === "entry") name.appendChild(mk("small", "cn-rrn" + (isNull(r.주민등록번호) ? " na" : ""), fmt(r.주민등록번호)));
+    who.append(sticker, name);
     note.prepend(mk("span", "pin"), who);
     return note;
   }
@@ -498,7 +505,7 @@ const Inv = (() => {
     area.placeholder = `예) ${table.varName}[ ${table.varName}['${table.columns[0]}'] == '...' ]`;
     const btns = mk("div", "cmd-buttons");
     const run = mk("button", "primary", "실행 (Ctrl+Enter)"); run.type = "button";
-    const fill = mk("button", "", "필터링를 코드로"); fill.type = "button";
+    const fill = mk("button", "", "지금 렌즈를 코드로"); fill.type = "button";
     btns.append(run, fill);
     const out = mk("div", "adv-out");
     d.append(mk("p", "hint", "쓸 수 있는 표: df_entry (출입표), df_delivery (택배장부). 여러 줄도 되고, a = ... 처럼 이름을 붙일 수도 있어요."), area, btns, out);
@@ -547,7 +554,8 @@ const Inv = (() => {
   }
 
   // ---------- REPORT 보드 (층 보드 · 큰 미스터리 공용) ----------
-  // opts: { options: 빈칸 id → 보기 목록, stamps: 신고/정상 버튼을 둘지, onSolvedClose: 미스터리용 }
+  // ---------- 큰 미스터리 보드 (빈칸 드롭다운) ----------
+  // opts: { options: 빈칸 id → 보기 목록, onSolvedClose: 다 맞히거나 확인을 다 쓰면 나오는 다음 버튼 }
   function openBoardModal(bd, st, title, opts) {
     const m = openModal({ title, cls: "inv-board" });
     Sfx.open();
@@ -605,16 +613,7 @@ const Inv = (() => {
       wrap.classList.toggle("solved", st.solved);
 
       right.innerHTML = "";
-      if (opts.stamps) {
-        const rep = mk("button", "stamp-btn bad", "신고"); rep.type = "button";
-        const ok = mk("button", "stamp-btn ok", "정상"); ok.type = "button";
-        rep.disabled = ok.disabled = !!st.stamp || !all;          // 빈칸을 모두 채워야 판정할 수 있다
-        rep.addEventListener("click", () => stamp("report"));
-        ok.addEventListener("click", () => stamp("next"));
-        if (st.stamp) right.appendChild(mk("span", "stamped", st.stamp === "report" ? "✗ 신고함" : "✓ 정상 처리함"));
-        else if (!all) right.appendChild(mk("span", "stamp-wait", "빈칸을 모두 채우면 누를 수 있어요"));
-        right.append(rep, ok);
-      } else if (opts.onSolvedClose && (st.solved || st.checksLeft === 0)) {
+      if (opts.onSolvedClose && (st.solved || st.checksLeft === 0)) {
         const go = mk("button", "primary", st.solved ? "진실을 확인하기 ▶" : "결론 없이 보고서 제출 ▶"); go.type = "button";
         go.addEventListener("click", () => { closeModal(); opts.onSolvedClose(st.solved); });
         right.appendChild(go);
@@ -628,12 +627,12 @@ const Inv = (() => {
       if (wrong === 0) {
         st.solved = true;
         if (st.firstTry === null) st.firstTry = true;
-        st.feedback = opts.stamps ? "모두 맞음. 이제 신고할지, 정상으로 볼지 정하세요." : "모두 맞음.";
+        st.feedback = "모두 맞음.";
         Sfx.correct();
       } else {
         if (st.firstTry === null) st.firstTry = false;
         st.feedback = wrong <= 2 ? "2개 이하 틀림. (어느 칸인지는 알려 주지 않아요)" : "아직 맞지 않다.";
-        if (st.checksLeft === 0) st.feedback += opts.stamps ? " 확인을 다 썼어요. 이제 신고 / 정상으로 판단하세요." : " 확인을 다 썼어요.";
+        if (st.checksLeft === 0) st.feedback += " 확인을 다 썼어요.";
         Sfx.click();
       }
       updateDesk();
@@ -646,9 +645,192 @@ const Inv = (() => {
     if (!s) return;
     if (s.mysteryMode) return openMysteryBoard();     // 미스터리 보드를 닫았다가 다시 열 때
     if (!s.found) return needFind();
-    const bd = BOARDS[s.floor];
-    openBoardModal(bd, s, `REPORT 보드 · ${bd.title}`, { options: BOARD_OPTIONS[s.floor] || {}, stamps: true });
+    openLinkBoard();
   }
+
+  // ---------- 증거 꽂기: 장부 포스트잇의 📌 ----------
+  const MAX_PINS = 8;
+  let linkRender = null;                        // REPORT 보드가 열려 있으면 다시 그리는 함수
+  const isPinned = (id) => !!s && Array.isArray(s.pins) && s.pins.some((p) => p.id === id);
+  const rowOf = (tableKey, id) => TABLES.find((t) => t.key === tableKey).rows.find((r) => r.id === id);
+
+  function toast(msg) {
+    const t = mk("div", "toast", msg);
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 1800);
+  }
+
+  function togglePin(table, r) {
+    if (!s || s.mysteryMode || s.stamp) return;
+    if (isPinned(r.id)) {
+      s.pins = s.pins.filter((p) => p.id !== r.id);
+      Object.keys(s.links).forEach((k) => { if (s.links[k].id === r.id) delete s.links[k]; });   // 그 포스트잇에 이은 실도 끊긴다
+    } else {
+      if (s.pins.length >= MAX_PINS) return toast(`증거는 ${MAX_PINS}장까지 꽂을 수 있어요. 필요 없는 것을 빼 주세요.`);
+      s.pins.push({ id: r.id, table: table.key });
+      toast("REPORT 보드에 꽂았어요 📌");
+    }
+    Sfx.click();
+    document.querySelectorAll(".pin-btn[data-pin]").forEach((b) => paintPin(b));
+    updateDesk();
+    if (linkRender) linkRender();
+  }
+  function paintPin(b) {
+    const on = isPinned(b.dataset.pin);
+    b.classList.toggle("on", on);
+    b.textContent = on ? "📌 꽂음" : "📌 꽂기";
+    b.title = on ? "누르면 REPORT 보드에서 빼요" : "누르면 REPORT 보드에 증거로 꽂아요";
+  }
+
+  // ---------- REPORT 보드: 증거 잇기 ----------
+  // 왼쪽 "영상 단서" 카드(CLUES)와 오른쪽 꽂아 온 포스트잇을 실로 잇는다. 초록 = 설명된다 / 빨강 = 어긋난다
+  const allLinked = () => (CLUES[s.floor] || []).every((_, i) => s.links[i]);
+
+  function openLinkBoard() {
+    const bd = BOARDS[s.floor], clues = CLUES[s.floor] || [];
+    const m = openModal({ title: `REPORT 보드 · ${bd.title}`, cls: "inv-board link-board", onClose: () => { linkRender = null; window.removeEventListener("resize", redraw); } });
+    Sfx.open();
+    const wrap = mk("div", "board-wrap");
+    wrap.appendChild(mk("p", "board-tip", "① 왼쪽 단서 카드를 누르고 ② 실 색을 고른 뒤 ③ 오른쪽 포스트잇을 누르면 실로 이어져요."));
+    const tools = mk("div", "string-tools");
+    const area = mk("div", "link-area");
+    const cardsCol = mk("div", "clue-col");
+    const wall = mk("div", "pin-wall");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "strings");
+    area.append(cardsCol, wall, svg);
+    const fb = mk("p", "board-fb");
+    const actions = mk("div", "board-actions");
+    const checkCol = mk("div", "check-col");
+    const check = mk("button", "primary", "확인"); check.type = "button";
+    const left = mk("span", "check-left");
+    checkCol.append(check, left);
+    const right = mk("div", "board-right");
+    actions.append(checkCol, right);
+    wrap.append(tools, area, fb, actions);
+    m.body.appendChild(wrap);
+    let sel = null, mode = "eq";
+    const locked = () => s.solved || !!s.stamp;
+
+    const render = () => {
+      // 실 색 고르기
+      tools.innerHTML = "";
+      tools.appendChild(mk("span", "st-label", "실 색"));
+      [["eq", "= 기록이 영상을 설명해요"], ["ne", "≠ 기록과 영상이 어긋나요"]].forEach(([k, label]) => {
+        const b = mk("button", "string-mode " + k + (mode === k ? " on" : ""), label); b.type = "button";
+        b.addEventListener("click", () => { mode = k; render(); });
+        tools.appendChild(b);
+      });
+      // 단서 카드
+      cardsCol.innerHTML = "";
+      clues.forEach((c, i) => {
+        const card = mk("div", "clue-card" + (sel === i ? " sel" : "") + (s.links[i] ? " linked " + s.links[i].rel : ""));
+        card.dataset.ci = String(i);
+        card.tabIndex = 0;
+        card.setAttribute("role", "button");
+        card.append(mk("span", "clue-tag", c.tag), mk("p", "clue-text", c.text), mk("span", "clue-where", `찾아볼 곳: ${c.where}`), mk("span", "clue-knot"));
+        if (s.links[i] && !locked()) {
+          const cut = mk("button", "cut", "실 끊기 ✕"); cut.type = "button";
+          cut.addEventListener("click", (e) => { e.stopPropagation(); delete s.links[i]; s.feedback = ""; render(); });
+          card.appendChild(cut);
+        }
+        const pick = () => { if (locked()) return; sel = sel === i ? null : i; Sfx.click(); render(); };
+        card.addEventListener("click", pick);
+        card.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+        cardsCol.appendChild(card);
+      });
+      // 꽂아 온 포스트잇
+      wall.innerHTML = "";
+      if (!s.pins.length) wall.appendChild(mk("p", "cork-empty", "아직 꽂은 증거가 없어요.\n장부(출입표 · 택배장부)를 열고, 증거가 될 포스트잇의 📌 꽂기를 눌러 오세요."));
+      s.pins.forEach((p, i) => {
+        const t = TABLES.find((x) => x.key === p.table), r = rowOf(p.table, p.id);
+        const note = corkNote(t, r, i);
+        note.classList.add("wall-note");
+        note.dataset.id = p.id;
+        note.prepend(mk("span", "note-knot"));
+        note.addEventListener("click", () => {
+          if (locked()) return;
+          if (sel === null) { s.feedback = "왼쪽 단서 카드를 먼저 골라요."; return render(); }
+          s.links[sel] = { id: p.id, rel: mode };
+          sel = null; s.feedback = "";
+          Sfx.click();
+          render();
+        });
+        wall.appendChild(note);
+      });
+      // 확인 · 판정
+      const all = allLinked();
+      check.disabled = s.solved || !all || s.checksLeft === 0;
+      check.textContent = s.solved ? "모두 맞음 ✓" : "확인";
+      left.textContent = `${s.checksLeft} / ${MAX_CHECKS}`;
+      left.title = "남은 확인 횟수";
+      fb.textContent = s.feedback;
+      fb.className = "board-fb" + (s.solved ? " ok" : s.feedback ? " ng" : "");
+      wrap.classList.toggle("solved", s.solved);
+      right.innerHTML = "";
+      const rep = mk("button", "stamp-btn bad", "신고"); rep.type = "button";
+      const ok = mk("button", "stamp-btn ok", "정상"); ok.type = "button";
+      rep.disabled = ok.disabled = !!s.stamp || !all;          // 단서 카드를 모두 이어야 판정할 수 있다
+      rep.addEventListener("click", () => stamp("report"));
+      ok.addEventListener("click", () => stamp("next"));
+      if (s.stamp) right.appendChild(mk("span", "stamped", s.stamp === "report" ? "✗ 신고함" : "✓ 정상 처리함"));
+      else if (!all) right.appendChild(mk("span", "stamp-wait", "단서 카드를 모두 실로 이으면 누를 수 있어요"));
+      right.append(rep, ok);
+      requestAnimationFrame(redraw);
+    };
+
+    // 실 그리기: 카드 오른쪽 매듭 → 포스트잇 왼쪽 매듭, 살짝 처지는 곡선
+    function redraw() {
+      if (!area.isConnected) return;
+      const box = area.getBoundingClientRect();
+      svg.setAttribute("viewBox", `0 0 ${box.width} ${box.height}`);
+      svg.setAttribute("width", box.width); svg.setAttribute("height", box.height);
+      svg.innerHTML = "";
+      Object.entries(s.links).forEach(([ci, link]) => {
+        const card = cardsCol.querySelector(`[data-ci="${ci}"] .clue-knot`), note = wall.querySelector(`[data-id="${link.id}"] .note-knot`);
+        if (!card || !note) return;
+        const a = card.getBoundingClientRect(), b = note.getBoundingClientRect();
+        const x1 = a.left + a.width / 2 - box.left, y1 = a.top + a.height / 2 - box.top;
+        const x2 = b.left + b.width / 2 - box.left, y2 = b.top + b.height / 2 - box.top;
+        const color = link.rel === "eq" ? "#2f9e5f" : "#d63b3b";
+        const mx = (x1 + x2) / 2, my = Math.max(y1, y2) + 28;
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", `M${x1} ${y1} Q${mx} ${my} ${x2} ${y2}`);
+        path.setAttribute("stroke", color);
+        path.setAttribute("class", "string");
+        svg.appendChild(path);
+        const lx = 0.25 * x1 + 0.5 * mx + 0.25 * x2, ly = 0.25 * y1 + 0.5 * my + 0.25 * y2;
+        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        c.setAttribute("cx", lx); c.setAttribute("cy", ly); c.setAttribute("r", 12); c.setAttribute("fill", color);
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("x", lx); t.setAttribute("y", ly + 5); t.setAttribute("text-anchor", "middle");
+        t.textContent = link.rel === "eq" ? "=" : "≠";
+        svg.append(c, t);
+      });
+    }
+
+    check.addEventListener("click", () => {
+      const wrong = clues.filter((c, i) => !s.links[i] || !c.ev.includes(s.links[i].id) || s.links[i].rel !== c.rel).length;
+      s.checksLeft -= 1; s.checksUsed += 1;
+      if (wrong === 0) {
+        s.solved = true;
+        if (s.firstTry === null) s.firstTry = true;
+        s.feedback = "모두 맞음. 이제 신고할지, 정상으로 볼지 정하세요.";
+        Sfx.correct();
+      } else {
+        if (s.firstTry === null) s.firstTry = false;
+        s.feedback = "아직 맞지 않은 실이 있어요. (어느 실인지는 알려 주지 않아요) 이은 포스트잇이나 실 색을 다시 보세요.";
+        if (s.checksLeft === 0) s.feedback = "확인을 다 썼어요. 이제 신고 / 정상으로 판단하세요.";
+        Sfx.click();
+      }
+      updateDesk();
+      render();
+    });
+    linkRender = render;
+    window.addEventListener("resize", redraw);
+    render();
+  }
+
 
   // ---------- 아파트 수칙 · TIP (책상 위 종이) ----------
   const rulesFor = (floor) => RULES.filter((r) => r.floor <= floor);
@@ -672,7 +854,7 @@ const Inv = (() => {
     box.innerHTML = "";
     box.appendChild(mk("h4", "", "TIP"));
     const ul = mk("ul");
-    ["CCTV를 둘러보고 이상한 것을 눌러요.", "책을 열어 기록을 필터링하여 보세요.", tool ? `새 도구: ${tool.name}` : null, "REPORT 보드를 다 채우고 정상 / 신고를 고르세요."]
+    ["CCTV를 둘러보고 이상한 것을 눌러요.", "책을 열어 기록을 필터링하고, 증거 포스트잇의 📌를 눌러 꽂아요.", tool ? `새 도구: ${tool.name}` : null, "REPORT 보드에서 단서와 증거를 실로 잇고 정상 / 신고를 골라요."]
       .filter(Boolean).forEach((t) => ul.appendChild(mk("li", "", t)));
     box.appendChild(ul);
   }
@@ -719,7 +901,7 @@ const Inv = (() => {
       <text x="123" y="80" text-anchor="middle" font-size="9" font-weight="800" fill="#cfd">기록 2줄</text>
       <circle cx="80" cy="43" r="11" fill="#e5484d" stroke="#14161b" stroke-width="2"/><text x="80" y="48" text-anchor="middle" font-size="15" font-weight="900" fill="#fff">≠</text>
       <text x="80" y="102" text-anchor="middle" font-size="9" fill="#d8c9a0">영상 = 기록 ?</text>` },
-    { title: "정답을 맞춘다", sub: "보드를 채우고 정상 / 신고", svg: `
+    { title: "정답을 맞춘다", sub: "증거를 실로 잇고 정상 / 신고", svg: `
       <rect x="30" y="6" width="100" height="98" rx="6" fill="#3a3f48" stroke="#14161b" stroke-width="3"/>
       <rect x="38" y="13" width="84" height="44" rx="2" fill="#102a1e" stroke="#14161b" stroke-width="2"/>
       <text x="80" y="31" text-anchor="middle" font-size="10" font-weight="800" fill="#8fe3a8" font-family="monospace">REPORT</text>
@@ -743,7 +925,7 @@ const Inv = (() => {
       row.appendChild(li);
     });
     m.body.appendChild(row);
-    m.body.appendChild(mk("p", "guide-note", "맞았는지는 바로 알려 주지 않아요. 틀린 판단은 두 층 뒤에 경고장으로 돌아와요. (3장이면 해고)"));
+    m.body.appendChild(mk("p", "guide-note", "맞았는지는 바로 알려 주지 않아요. 근무가 끝나면 정산서에서 한꺼번에 알려 줘요."));
     const a = mk("div", "check-actions");
     const ok = mk("button", "primary big", "근무 시작 ▶"); ok.type = "button";
     ok.addEventListener("click", () => closeModal());
@@ -753,8 +935,6 @@ const Inv = (() => {
   }
 
   // ---------- 판정 도장 ----------
-  const boardFilled = () => Object.keys(BOARDS[s.floor].blanks).every((id) => s.board[id]);
-
   // 책상의 ✓ / ✗ : 먼저 REPORT 보드를 연다 (판정은 보드를 다 채운 뒤 보드 안의 버튼으로)
   function verdict() {
     if (!s || s.stamp || s.mysteryMode) return;
@@ -764,7 +944,7 @@ const Inv = (() => {
 
   function stamp(choice) {
     if (!s || s.stamp || s.mysteryMode) return;
-    if (!boardFilled()) return openBoard();
+    if (!allLinked()) return openBoard();
     const m = openModal({ title: "판정 도장", cls: "paper" });
     m.body.appendChild(mk("p", "choice-banner " + (choice === "report" ? "bad" : "ok"),
       choice === "report" ? "✗ 신고 — 기록으로 설명되지 않는다" : "✓ 정상 — 기록으로 설명된다"));
@@ -792,52 +972,10 @@ const Inv = (() => {
     setTimeout(() => st.classList.add("set"), 20);
   }
 
-  // ---------- 오판의 결과 · 경고장 ----------
-  function renderWarnings() {
-    const h = el.hearts;
-    if (!h || !night) return;
-    h.innerHTML = "";
-    h.classList.toggle("hidden", night.warnings === 0);
-    h.classList.add("warnings");
-    h.appendChild(mk("span", "warn-label", "경고장"));
-    for (let i = 0; i < night.warnings; i++) h.appendChild(mk("span", "warn-slip"));
-    h.setAttribute("aria-label", `경고장 ${night.warnings}장 (3장이면 해고)`);
-  }
-
-  // due 가 된 결과를 차례로 보여 준다. 다 보여 주면 next()
-  function runEvents(due, next) {
-    const list = night.pending.filter((p) => p.due === due || (due === "report" && typeof p.due === "number" && p.due > FLOORS.length));
-    night.pending = night.pending.filter((p) => !list.includes(p));
-    const step = () => {
-      const p = list.shift();
-      if (!p) return next();
-      const ev = EVENTS[p.floor];
-      night.warnings += 1;
-      renderWarnings();
-      Sfx.wrong();
-      const m = openModal({ title: `${ev.from} · ${p.floor}층 판정 관련`, cls: "paper event", onClose: () => setTimeout(() => (night.warnings >= FIRE_AT ? fire() : step()), 0) });
-      m.body.appendChild(mk("p", "event-from", ev.kind === "민원" ? "📞 주민 민원" : "📻 순찰 무전"));
-      m.body.appendChild(mk("p", "event-text", ev.text));
-      m.body.appendChild(mk("p", "paper-note", `관리소 경고장 1장. (${night.warnings} / ${FIRE_AT}장) ${p.floor}층에서 찍은 도장이 틀렸다는 뜻이에요.`));
-      const a = mk("div", "check-actions");
-      const ok = mk("button", "primary", "확인"); ok.type = "button";
-      ok.addEventListener("click", () => closeModal());
-      a.appendChild(ok);
-      m.body.appendChild(a);
-    };
-    step();
-  }
-
-  function fire() {
-    night.fired = true;
-    showSummary("해고");
-  }
-
   // ---------- 층 마치기: 풀이 → 다음 층 | 보고서 ----------
   function finishFloor() {
     const f = currentFloor();
     night.log.push({ floor: f.floor, anomaly: f.anomaly, stamp: s.stamp, answer: f.answer, firstTry: s.firstTry, solved: s.solved, lenses: s.lenses.length, hour: Number(f.cctvTime.slice(6, 8)) });
-    if (s.stamp !== f.answer) night.pending.push({ floor: f.floor, due: f.floor + RESULT_DELAY });
     const last = f.floor >= FLOORS.length;
     openLesson(f, () => (last ? startReport() : proceed()), last ? "경비 보고서 쓰러 가기 ▶" : "다음 층으로 ▶");
   }
@@ -853,17 +991,17 @@ const Inv = (() => {
 
   function openLesson(f, next, label) {
     const m = openModal({ title: `오늘의 코드 풀이 · ${f.floor}층`, cls: "lesson" });
-    m.body.appendChild(mk("p", "lesson-intro", "당신이 고른 필터링 문장은 사실 pandas 코드였어요. 말과 코드를 한 줄씩 짝지어 읽어 보세요. 책의 고급 모드에 그대로 써서 실행해 볼 수도 있어요."));
+    m.body.appendChild(mk("p", "lesson-intro", "당신이 고른 렌즈 문장은 사실 pandas 코드였어요. 말과 코드를 한 줄씩 짝지어 읽어 보세요. 책의 고급 모드에 그대로 써서 실행해 볼 수도 있어요."));
     const tbl = (k) => TABLES.find((t) => t.key === k);
     if (s.lenses.length) {
-      s.lenses.slice(-6).forEach((l) => m.body.appendChild(lessonStep(tbl(l.table), l, `내가 쓴 필터링 · 결과 ${l.result}`)));
-      if (s.lenses.length > 6) m.body.appendChild(mk("p", "hint", `(앞의 필터링 ${s.lenses.length - 6}개는 생략했어요)`));
+      s.lenses.slice(-6).forEach((l) => m.body.appendChild(lessonStep(tbl(l.table), l, `내가 쓴 렌즈 · 결과 ${l.result}`)));
+      if (s.lenses.length > 6) m.body.appendChild(mk("p", "hint", `(앞의 렌즈 ${s.lenses.length - 6}개는 생략했어요)`));
     } else {
-      m.body.appendChild(mk("p", "hint", "이번 층에서는 필터링를 쓰지 않았어요. 정석 데이터 처리 방식를 보여 드릴게요."));
+      m.body.appendChild(mk("p", "hint", "이번 층에서는 렌즈를 쓰지 않았어요. 정석 렌즈를 보여 드릴게요."));
     }
     const canon = BOARDS[f.floor].canonical || [];
     const used = new Set(s.lenses.map((l) => l.key));
-    canon.filter((c) => !used.has(lensCode(tbl(c.table), c))).forEach((c) => m.body.appendChild(lessonStep(tbl(c.table), c, "정석 필터링 (이렇게도 볼 수 있어요)")));
+    canon.filter((c) => !used.has(lensCode(tbl(c.table), c))).forEach((c) => m.body.appendChild(lessonStep(tbl(c.table), c, "정석 렌즈 (이렇게도 볼 수 있어요)")));
     const tool = FLOOR_TOOL[f.floor];
     const typeOf = { 1: "cmp", 2: "cmp", 3: "unique", 4: "null", 5: "isin", 6: "group", 7: "cmp", 8: "stat" }[f.floor];
     const ex = mk("section", "lesson-step");
@@ -880,12 +1018,7 @@ const Inv = (() => {
   }
 
   // ---------- 경비 보고서 → 큰 미스터리 ----------
-  function startReport() {
-    runEvents("report", () => {
-      if (night.fired) return;
-      openReport();
-    });
-  }
+  function startReport() { openReport(); }
 
   function openReport() {
     const m = openModal({ title: "경비 보고서", cls: "lesson report-win" });
@@ -961,7 +1094,7 @@ const Inv = (() => {
     Sfx.stopAmbience();
     if (grade === "진실") Sfx.win(); else Sfx.lose();
     const m = openModal({ title: "근무 종료 정산서", cls: "paper summary" });
-    const head = { 진실: "결말: 진실 — 607호의 정체를 밝혔다", "반쪽 진실": "결말: 반쪽 진실 — 이상은 막았지만 정체는 모른다", 해고: "결말: 해고 — 경고장 3장" }[grade];
+    const head = { 진실: "결말: 진실 — 607호의 정체를 밝혔다", "반쪽 진실": "결말: 반쪽 진실 — 이상은 막았지만 정체는 모른다" }[grade];
     m.body.appendChild(mk("p", "choice-banner " + (grade === "진실" ? "ok" : "bad"), head));
     const t = mk("table", "summary-table");
     const trh = mk("tr");
@@ -976,11 +1109,11 @@ const Inv = (() => {
     });
     m.body.appendChild(t);
     const right = night.log.filter((r) => r.stamp === r.answer).length;
-    m.body.appendChild(mk("p", "paper-note", `판정 정답 ${right} / ${night.log.length} · 경고장 ${night.warnings}장 · 큰 미스터리 ${night.mystery && night.mystery.solved ? "해결" : "미해결"}`));
+    m.body.appendChild(mk("p", "paper-note", `판정 정답 ${right} / ${night.log.length} · 큰 미스터리 ${night.mystery && night.mystery.solved ? "해결" : "미해결"}`));
     const c = typeof COURSE === "object" && COURSE ? COURSE : {};
     const course = mk("div", "course");
     course.appendChild(mk("h2", "", "오늘 밤 당신이 한 일이 바로 EDA예요"));
-    course.appendChild(mk("p", "", `값 모아 보기(unique), 거르기(조건 · isin), 빈 칸 찾기(결측치), 묶어서 세기(groupby), 가장 큰 값(통계), 그리고 그래프까지. 필터링 문장은 모두 진짜 pandas 코드였어요. ${c.name ? `중앙대학교 K-MOOC 「${c.name}」` : "중앙대학교 K-MOOC 강좌"}에서 직접 써 보세요.` + (c.blurb ? " " + c.blurb : "")));
+    course.appendChild(mk("p", "", `값 모아 보기(unique), 거르기(조건 · isin), 빈 칸 찾기(결측치), 묶어서 세기(groupby), 가장 큰 값(통계), 그리고 그래프까지. 렌즈 문장은 모두 진짜 pandas 코드였어요. ${c.name ? `중앙대학교 K-MOOC 「${c.name}」` : "중앙대학교 K-MOOC 강좌"}에서 직접 써 보세요.` + (c.blurb ? " " + c.blurb : "")));
     const link = mk("a", "course-link", c.name ? `「${c.name}」 강좌 보러 가기 ↗` : "K-MOOC 에서 강좌 찾아보기 ↗");
     link.href = c.url || "https://www.kmooc.kr"; link.target = "_blank"; link.rel = "noopener";
     course.appendChild(link);
@@ -1000,7 +1133,7 @@ const Inv = (() => {
       bb.classList.toggle("solved", s.solved);
       $("board-status").textContent = s.mysteryMode ? "큰 미스터리"
         : s.stamp ? (s.stamp === "report" ? "✗ 신고함" : "✓ 정상 처리함")
-        : s.solved ? "모두 맞음" : `확인 ${s.checksLeft} / ${MAX_CHECKS}`;
+        : s.solved ? "모두 맞음" : `증거 ${s.pins.length}장 · 확인 ${s.checksLeft} / ${MAX_CHECKS}`;
     }
     const stamped = !!s.stamp || !!s.mysteryMode;
     el.btnReport.disabled = stamped;
@@ -1014,9 +1147,8 @@ const Inv = (() => {
     s = freshFloor(f.floor);
     renderRules();
     renderTip();
-    renderWarnings();
     updateDesk();
-    runEvents(f.floor, () => { if (!night.fired && f.floor === 1) openGuide(); });   // 안내는 1층 시작 전에 한 번만
+    if (f.floor === 1) openGuide();               // 안내는 1층 시작 전에 한 번만
   }
 
   function setFound() { if (s && !s.mysteryMode) s.found = true; }

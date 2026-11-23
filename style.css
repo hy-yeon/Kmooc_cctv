@@ -47,9 +47,6 @@ button.big { padding: 16px 28px; font-size: 1.15rem; }
 .topbar { flex: none; display: flex; justify-content: space-between; align-items: center; margin: 0; padding: 8px 16px; font-size: 1.1rem; font-weight: 700; background: #0b0d12; border-bottom: 2px solid #272b38; }
 .topbar-right { display: flex; align-items: center; gap: 12px; }
 .icon-btn { padding: 6px 12px; font-size: .85rem; background: #2d3142; }
-#hearts.warnings { display: inline-flex; align-items: center; gap: 4px; }
-.warn-label { font-size: .8rem; color: #ff9a9a; font-weight: 800; margin-right: 2px; }
-.warn-slip { width: 16px; height: 21px; background: #f3ead0; border: 2px solid #c0392b; transform: rotate(-6deg); box-shadow: 1px 1px 0 rgba(0, 0, 0, .5); }
 
 .desk {
   position: relative; flex: 1; min-height: 0; overflow: hidden;
@@ -352,6 +349,55 @@ select.bsel.verdict.empty { background-color: rgba(255, 255, 255, .55); color: #
 .stamp-btn.ok { background: #2f9e5f; }
 .stamped { font-weight: 800; color: #fd6; }
 
+/* REPORT 보드: 증거 잇기 (영상 단서 카드 ↔ 꽂아 온 포스트잇을 실로) */
+.modal.link-board { width: min(1100px, 100%); }
+.string-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+.st-label { font-weight: 800; color: #d8c9a0; margin-right: 4px; }
+.string-mode { padding: 7px 12px; font-size: .88rem; font-weight: 800; border: 3px solid transparent; background: #3b2d23; color: #f3ead0; }
+.string-mode.eq { border-color: #2f9e5f; }
+.string-mode.ne { border-color: #d63b3b; }
+.string-mode.eq.on { background: #2f9e5f; }
+.string-mode.ne.on { background: #d63b3b; }
+.link-area {
+  position: relative; display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 70px; padding: 18px;
+  border: 8px solid #5b3a22; border-radius: 6px; box-shadow: inset 0 0 0 2px #2b1d14, inset 0 0 22px rgba(60, 35, 10, .55);
+  background: radial-gradient(circle at 20% 30%, rgba(90, 55, 20, .35) 0 1.5px, transparent 2px) 0 0 / 9px 9px, radial-gradient(circle at 70% 60%, rgba(255, 230, 180, .18) 0 1px, transparent 1.5px) 0 0 / 7px 7px, #b98a55;
+}
+.clue-col { display: flex; flex-direction: column; gap: 18px; }
+.clue-card {
+  position: relative; padding: 12px 14px 12px; background: #fdfaf0; color: #2a241a; cursor: pointer; transform: rotate(-.8deg);
+  box-shadow: 2px 4px 0 rgba(0, 0, 0, .3); border-left: 6px solid #2a241a;
+}
+.clue-card:nth-child(even) { transform: rotate(.9deg); }
+.clue-card:hover { filter: brightness(1.04); }
+.clue-card.sel { outline: 4px solid #fd6; outline-offset: 2px; }
+.clue-card.linked.eq { border-left-color: #2f9e5f; }
+.clue-card.linked.ne { border-left-color: #d63b3b; }
+.clue-tag { display: inline-block; padding: 1px 8px; background: #2a241a; color: #efe6c8; font-size: .74rem; font-weight: 800; border-radius: 3px; }
+.clue-text { margin: 6px 0 4px; font-weight: 800; line-height: 1.45; }
+.clue-where { font-size: .76rem; color: #8a7a55; }
+.clue-knot, .note-knot { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #2a241a; border: 3px solid #fdfaf0; box-shadow: 0 1px 0 rgba(0, 0, 0, .4); }
+.clue-knot { right: -9px; top: 50%; margin-top: -7px; }
+.note-knot { left: -9px; top: 50%; margin-top: -7px; z-index: 1; }
+.clue-card .cut { position: absolute; right: 10px; bottom: 6px; padding: 2px 8px; font-size: .72rem; background: #e2d6b0; color: #2a241a; }
+.pin-wall { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 18px 22px; min-height: 180px; }
+.pin-wall .cork-empty { max-width: 340px; }
+.wall-note { width: 220px; max-width: 220px; cursor: pointer; animation: none; }
+.wall-note:hover { filter: brightness(1.05); }
+svg.strings { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 2; }
+svg.strings .string { fill: none; stroke-width: 3.5; stroke-linecap: round; filter: drop-shadow(1px 2px 0 rgba(0, 0, 0, .35)); }
+svg.strings text { fill: #fff; font: 900 16px sans-serif; }
+
+/* 포스트잇의 📌 꽂기 버튼 · 알림 */
+.postit { position: relative; }
+.pin-btn { position: absolute; top: -10px; right: -6px; z-index: 1; padding: 2px 7px; font-size: .72rem; font-weight: 800; border-radius: 10px; background: #fff; color: #2a241a; border: 2px solid #2a241a; box-shadow: 1px 2px 0 rgba(0, 0, 0, .3); }
+.pin-btn.on { background: #d63b3b; color: #fff; border-color: #7a1f17; }
+.cork-note .pin-btn { top: 4px; right: 4px; }
+.cn-rrn { display: block; font: 700 .72rem ui-monospace, Consolas, monospace; color: #5a4e35; }
+.cn-rrn.na { color: #c0392b; font-style: italic; }
+.toast { position: fixed; left: 50%; bottom: 18%; z-index: 90; transform: translateX(-50%); padding: 9px 16px; border: 3px solid #fd6; border-radius: 6px; background: #12141b; color: #fff; font-weight: 800; pointer-events: none; animation: toast-up 1.8s ease-out forwards; }
+@keyframes toast-up { 0% { opacity: 0; transform: translate(-50%, 10px); } 12%, 78% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -12px); } }
+
 /* ---------- 7) 종이 창 ---------- */
 .modal.paper { background: #f3ead0; color: #2a241a; border-color: #8a7a55; }
 .modal.paper .modal-head { background: #e2d6b0; }
@@ -366,8 +412,6 @@ select.bsel.verdict.empty { background-color: rgba(255, 255, 255, .55); color: #
 .unlock { margin: 0 0 10px; padding: 10px 12px; border: 2px dashed #8a7a55; background: rgba(255, 255, 255, .4); }
 .unlock p { margin: 6px 0 0; font-family: ui-monospace, Consolas, monospace; font-size: .9rem; }
 .howto { margin: 0 0 6px; padding-left: 20px; line-height: 1.7; font-size: .92rem; }
-.modal.event .event-from { margin: 0 0 6px; font-weight: 800; }
-.modal.event .event-text { margin: 0 0 10px; padding: 12px 14px; border-left: 5px solid #c0392b; background: rgba(255, 255, 255, .5); font-size: 1.05rem; line-height: 1.6; }
 .modal.summary { width: min(980px, 100%); }
 .summary-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: .92rem; }
 .summary-table th, .summary-table td { border: 1px solid #8a7a55; padding: 6px 8px; text-align: left; }
@@ -399,7 +443,6 @@ select.bsel.verdict.empty { background-color: rgba(255, 255, 255, .55); color: #
 
 /* ---------- 8) 코드 풀이 · 보고서 · 결말 ---------- */
 .modal.lesson { width: min(860px, 100%); }
-.modal.lesson .check-actions { justify-content: flex-end; }
 .lesson-intro { margin: 0 0 12px; color: #cdd; line-height: 1.6; }
 .lesson-step { margin: 0 0 14px; padding: 12px 14px; border: 1px solid #3a3e50; border-radius: 8px; background: rgba(10, 12, 18, .6); }
 .lesson-step h3 { margin: 0 0 4px; font-size: 1.02rem; color: #8fd; }
@@ -463,6 +506,8 @@ select.bsel.verdict.empty { background-color: rgba(255, 255, 255, .55); color: #
   .lesson-tag { width: auto; padding-top: 0; }
   .card { min-width: 0; flex: 1 1 40%; }
   .bsent { font-size: .98rem; }
+  .link-area { grid-template-columns: 1fr; gap: 28px; }
+  .wall-note { width: 100%; max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .cctv-fx::after, .cctv .rec, .lift, .finale-screen.cut, .cctv.glitch .cctv-canvas, .cctv.glitch::after, .monitor.shake, .cctv-flash.on { animation: none; }
