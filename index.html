@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>동물 아파트 야간 경비</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <!-- 시작 화면 -->
+    <section id="intro">
+      <p class="intro-tag">ANIMAL APT. SECURITY · NIGHT SHIFT</p>
+      <h1>동물 아파트 야간 경비</h1>
+      <p class="intro-lead">영상은 거짓말을 해도, 데이터는 거짓말을 안 한다.</p>
+      <ol class="intro-rules">
+        <li>CCTV 복도를 <b>직접 걸으며</b> 수상한 것을 눌러 <b>낱말</b>을 모은다.</li>
+        <li>책장의 <b>책</b>을 열어 <b>렌즈</b>를 직접 만들어 기록을 거른다. 게임은 질문하지 않아요. (코딩을 몰라도 OK)</li>
+        <li>모은 낱말로 <b>추리 보드</b>를 채우고, <b>✓ 이상 없음 / ✗ REPORT</b> 도장을 찍는다. 맞았는지는 근무가 끝나야 안다.</li>
+      </ol>
+      <p class="intro-note">8층까지 순찰하고 보고서와 마지막 추리를 마치면 근무 완료. 경고장 3장이면 해고!</p>
+      <button id="btn-start" class="primary big">야간 근무 시작 ▶</button>
+    </section>
+
+    <section id="game" class="hidden">
+      <header class="topbar">
+        <span id="floor-label"></span>
+        <span class="topbar-right">
+          <button id="btn-mute" class="icon-btn" type="button" aria-pressed="false">소리 켜짐</button>
+          <span id="hearts" class="hidden" role="img"></span>
+        </span>
+      </header>
+
+      <div class="desk" id="desk">
+        <!-- 책장: 책 2권 (출입표 / 배달표). 누르면 기록 창이 열린다 -->
+        <div class="shelf">
+          <div class="shelf-books">
+            <button id="book-entry" class="book entry" type="button" aria-label="출입 기록 책 열기">
+              <span class="book-title">출입표</span><span class="book-badge" id="badge-entry"></span>
+            </button>
+            <button id="book-delivery" class="book delivery" type="button" aria-label="배달 기록 책 열기">
+              <span class="book-title">배달표</span><span class="book-badge" id="badge-delivery"></span>
+            </button>
+          </div>
+          <div class="shelf-board" aria-hidden="true"></div>
+          <p class="shelf-tip">책을 눌러<br>기록 보기</p>
+          <div class="desk-bank">
+            <span class="bank-label">낱말 수첩</span>
+            <div class="word-bank" id="desk-bank"></div>
+          </div>
+        </div>
+
+        <!-- 가운데: CCTV 모니터 -->
+        <div class="monitor">
+          <div class="monitor-bezel">
+            <div class="cctv" id="view">
+              <div id="cctv-screen"></div>
+              <div class="cctv-fx" aria-hidden="true"></div>
+              <span class="rec">● 순찰 중</span>
+              <span id="cctv-cam" class="cam"></span>
+              <button id="cctv-time" class="ts clock" type="button" title="누르면 이 시각을 낱말로 모아요"></button>
+              <span id="found-badge" class="found-badge hidden">이상 발견!</span>
+              <div class="crosshair" aria-hidden="true"></div>
+              <div class="walk-pad">
+                <button id="btn-left" type="button" aria-label="왼쪽 보기">◀</button>
+                <button id="btn-fwd" type="button" aria-label="앞으로">▲</button>
+                <button id="btn-back" type="button" aria-label="뒤로">▼</button>
+                <button id="btn-right" type="button" aria-label="오른쪽 보기">▶</button>
+              </div>
+              <div id="lift" class="lift hidden"><span id="lift-text"></span></div>
+            </div>
+          </div>
+          <div class="monitor-neck" aria-hidden="true"></div>
+          <p id="cctv-caption"></p>
+          <p class="walk-help">이동 ▲▼ (W S) · 둘러보기 화면 끌기 또는 ◀▶ · 이상한 것은 눌러 표시</p>
+        </div>
+
+        <!-- 오른쪽: 벽의 체크리스트(그림) + 판정 버튼 -->
+        <aside class="side">
+          <button id="board-btn" class="board-btn" type="button">
+            <span class="board-pins" aria-hidden="true"></span>
+            <b>추리 보드</b>
+            <span id="board-status" class="board-status"></span>
+          </button>
+          <button id="pinned" class="pinned rules" type="button"></button>
+          <div class="verdict">
+            <div class="verdict-btns">
+              <div class="verdict-one">
+                <button id="btn-next" class="round ok" type="button" aria-label="이상 없음 · TO NEXT FLOOR">✓</button>
+                <span>이상 없음<br><small>TO NEXT FLOOR</small></span>
+              </div>
+              <div class="verdict-one">
+                <button id="btn-report" class="round bad" type="button" aria-label="REPORT · 이상 신고">✗</button>
+                <span>REPORT<br><small>이상 신고</small></span>
+              </div>
+            </div>
+            <button id="btn-continue" class="primary hidden" type="button">다음 층으로 ▶</button>
+          </div>
+        </aside>
+
+        <!-- 책상 위: 키보드와 유선 마우스 (장식) -->
+        <div class="desk-top" aria-hidden="true">
+          <svg id="kb" class="keyboard" viewBox="0 0 490 176" role="presentation"></svg>
+          <svg id="ms" class="mouse" viewBox="0 0 100 170" role="presentation"></svg>
+        </div>
+      </div>
+      <p id="desk-status" class="desk-status" aria-live="polite"></p>
+    </section>
+
+    <!-- 경비 보고서 (마지막 층 뒤, 엔딩 앞). 판정 없음 -->
+    <section id="report" class="hidden">
+      <p class="intro-tag">NIGHT SHIFT REPORT</p>
+      <h1>경비 보고서</h1>
+      <p class="report-lead">순찰이 끝났어요. 관리소장에게 낼 보고서에 그래프 하나를 붙입시다. (틀려도 벌점 없음)</p>
+      <div id="report-panel"></div>
+      <button id="btn-submit" class="primary big" disabled>보고서 제출 ▶</button>
+    </section>
+
+    <section id="ending" class="hidden">
+      <h1 id="ending-title"></h1>
+      <p id="ending-msg"></p>
+      <p id="ending-score"></p>
+      <table class="result-table">
+        <thead>
+          <tr><th>층</th><th>이상현상</th><th>내 선택</th><th>정답</th><th>결과</th><th>서류</th></tr>
+        </thead>
+        <tbody id="result-body"></tbody>
+      </table>
+
+      <div id="ending-report" class="ending-report hidden">
+        <h2>오늘의 보고서</h2>
+        <div id="ending-chart"></div>
+        <p id="ending-chart-note"></p>
+      </div>
+
+      <!-- 강좌 안내 (data.js 의 COURSE 에서 강좌명·링크를 채운다) -->
+      <div class="course">
+        <h2>방금 한 일이 바로 EDA 예요</h2>
+        <p id="course-text"></p>
+        <a id="course-link" class="course-link" target="_blank" rel="noopener"></a>
+      </div>
+
+      <button id="btn-restart" class="primary">다시 하기</button>
+    </section>
+  </main>
+
+  <!-- 순서 중요: 데이터 → 카드 조사 → 체크리스트 → 3D(three.js) → CCTV 장면 → 소리 → 게임 엔진 -->
+  <script src="data.js"></script>
+  <script src="cases.js"></script>
+  <script src="checklists.js"></script>
+  <script src="boards.js"></script>
+  <script src="investigate.js"></script>
+  <script src="vendor/three.min.js"></script>
+  <script src="scenes.js"></script>
+  <script src="sound.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
