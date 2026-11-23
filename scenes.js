@@ -1,27 +1,23 @@
 // ============================================================
-// scenes.js — 복도 3D 연출 (PS1 레트로 스타일)
-//  ver8: 누른 물체의 이름표(tag)를 돌려준다. 예: "hamster", "door-0"(그 층 01호 문패), "seeds" → 낱말 모으기에 쓴다  · ver4: 경비원 1인칭 시점으로 걸어 다닌다
-//  - 이동은 정해진 지점(NODES) 사이만. 고개는 좌우/위아래로 돌릴 수 있다.
-//  - CctvView.step(±1) 이동, CctvView.look(dYaw, dPitch) 둘러보기, CctvView.pick(x, y) 이상한 것 누르기
-// three.js 로 로우폴리 복도와 동물을 그리고, 320x180 저해상도로 렌더링해 크게 늘린다.
-//  - 꼭짓점 떨림(vertex snapping), 픽셀 텍스처(NearestFilter), 안개, 낮은 프레임(20fps)
-//  - 키 = data.js 의 cctvScene.  사용: CctvView.init(container) → CctvView.show(key, floor)
+// scenes.js — CCTV 복도 연출 (PS1 레트로 스타일)
+//  복도를 옆에서 보는 고정 CCTV. 카메라는 복도를 따라 좌우로만 움직인다 (◀ ▶, 화면 끌기, ← →).
+//  - CctvView.init(container) → CctvView.show(key, floor) → CctvView.pan(±1)
+//  - three.js 로 로우폴리 복도와 동물을 그리고, 저해상도로 렌더링해 크게 늘린다.
+//    꼭짓점 떨림(vertex snapping), 픽셀 텍스처(NearestFilter), 낮은 프레임(20fps)
+//  - 키 = data.js 의 cctvScene
 //  - WebGL 을 못 쓰는 환경이면 조용히 포기한다 (게임은 자막만으로도 진행된다)
 // ============================================================
 
 const CctvView = (() => {
-  const W = 320, H = 180, FPS = 20, LAMP = 1.7;      // W,H: 꼭짓점 떨림 격자의 기준 해상도. 실제 렌더 크기는 화면 비율에 맞춘다(fit)
-  let renderer = null, scene = null, camera = null, actors = null, lamp = null, lampLight = null;
-  let doors = [], plates = [], plateMeshes = [];
-  let update = null, running = false, last = 0, acc = 0, time = 0, ok = false;
+  const W = 320, H = 180, FPS = 20, LAMP = 1.5;      // W,H: 꼭짓점 떨림 격자의 기준 해상도. 실제 렌더 크기는 화면 비율에 맞춘다(fit)
+  let renderer = null, scene = null, camera = null, actors = null;
+  let doors = [], plates = [], lamps = [];
+  let update = null, running = false, last = 0, acc = 0, time = 0, ok = false, host = null;
 
-  // 걸어 다닐 수 있는 지점 (복도 입구 → 안쪽). 동물과 겹치지 않게 오른쪽 벽을 따라 돈다.
-  const NODES = [
-    { x: 0.0, z: 2.3 }, { x: 0.2, z: 0.4 }, { x: 1.25, z: -1.6 }, { x: 1.3, z: -4.6 }, { x: 0.9, z: -7.6 },
-  ];
-  const EYE = 1.45, YAW_MAX = 2.6, PITCH_MIN = -0.7, PITCH_MAX = 0.35;
-  const walk = { node: 0, yaw: 0, pitch: -0.1, x: 0, z: 2.3 };
-  let handLight = null, raycaster = null, host = null;
+  // 카메라: 복도 앞쪽에서 뒷벽을 바라본다. x 만 움직인다.
+  const CAM = { y: 1.75, z: 11.5, lookY: 1.35, fov: 28 };
+  const PAN_STEP = 3.5;                                // ◀ ▶ 한 번에 움직이는 거리
+  const pan = { x: 0, target: 0, max: 0 };
 
   // ---------- 재료 / 도형 도우미 ----------
   // PS1 느낌: 화면 좌표를 거친 격자에 맞춰 꼭짓점이 덜덜 떨리게 한다
@@ -81,20 +77,20 @@ const CctvView = (() => {
     return () => { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; };
   }
 
-  // ---------- 복도 ----------
-  const HALL = { halfW: 2, height: 3, zNear: 3, zFar: -14 };
-  const DOOR_Z = [-2.5, -6.5, -10.5];
+  // ---------- 복도 (x 축으로 길게 뻗어 있다) ----------
+  const HALL = { halfLen: 15, back: -1.2, front: 6, height: 3 };
+  const DOOR_X = [-8, 0, 8];                           // 01호 · 02호 · 03호
 
   function buildHall() {
-    const len = HALL.zNear - HALL.zFar, midZ = (HALL.zNear + HALL.zFar) / 2;
+    const len = HALL.halfLen * 2, depth = HALL.front - HALL.back, midZ = (HALL.front + HALL.back) / 2;
 
     const floorTex = pixelTexture(16, 16, (g) => {
       g.fillStyle = "#3d4a4a"; g.fillRect(0, 0, 16, 16);
       g.fillStyle = "#2b3535"; g.fillRect(0, 0, 8, 8); g.fillRect(8, 8, 8, 8);
       g.fillStyle = "#465555"; g.fillRect(0, 0, 16, 1); g.fillRect(0, 0, 1, 16);
     });
-    floorTex.repeat.set(4, len);
-    const floor = put(scene, new THREE.PlaneGeometry(HALL.halfW * 2, len), lambert(0xffffff, { map: floorTex }), 0, 0, midZ);
+    floorTex.repeat.set(len, depth);
+    const floor = put(scene, new THREE.PlaneGeometry(len, depth), lambert(0xffffff, { map: floorTex }), 0, 0, midZ);
     floor.rotation.x = -Math.PI / 2;
 
     const wallTex = pixelTexture(16, 32, (g) => {
@@ -104,65 +100,61 @@ const CctvView = (() => {
       g.fillStyle = "#39413d"; g.fillRect(0, 22, 16, 10);      // 아래쪽 징두리
       g.fillStyle = "#2c3330"; g.fillRect(0, 21, 16, 1);
     });
-    [-1, 1].forEach((side) => {
-      const t = wallTex.clone(); t.needsUpdate = true; t.repeat.set(len / 2, 1);
-      const wall = put(scene, new THREE.PlaneGeometry(len, HALL.height), lambert(0xffffff, { map: t }), side * HALL.halfW, HALL.height / 2, midZ);
+    const backTex = wallTex.clone(); backTex.needsUpdate = true; backTex.repeat.set(len / 2, 1);
+    put(scene, new THREE.PlaneGeometry(len, HALL.height), lambert(0xffffff, { map: backTex }), 0, HALL.height / 2, HALL.back);
+    [-1, 1].forEach((side) => {                                                         // 복도 양 끝 벽
+      const t = wallTex.clone(); t.needsUpdate = true; t.repeat.set(depth / 2, 1);
+      const wall = put(scene, new THREE.PlaneGeometry(depth, HALL.height), lambert(0xffffff, { map: t }), side * HALL.halfLen, HALL.height / 2, midZ);
       wall.rotation.y = -side * Math.PI / 2;
     });
-
-    const ceil = put(scene, new THREE.PlaneGeometry(HALL.halfW * 2, len), lambert(0x30363a), 0, HALL.height, midZ);
+    const ceil = put(scene, new THREE.PlaneGeometry(len, depth), lambert(0x30363a), 0, HALL.height, midZ);
     ceil.rotation.x = Math.PI / 2;
-    put(scene, new THREE.PlaneGeometry(HALL.halfW * 2, HALL.height), lambert(0x4a534e), 0, HALL.height / 2, HALL.zFar);
-    put(scene, box(0.9, 1.5, 0.05), lambert(0x1c2422), 0, 0.95, HALL.zFar + 0.03);        // 복도 끝 창문
-    put(scene, box(0.8, 0.65, 0.06), basic(0x0b1622), 0, 1.32, HALL.zFar + 0.04);
 
-    // 문 (왼쪽 2개, 오른쪽 1개) + 호수판
-    const doorSpec = [{ side: -1, z: DOOR_Z[0] }, { side: 1, z: DOOR_Z[1] }, { side: -1, z: DOOR_Z[2] }];
-    doorSpec.forEach((d) => {
+    // 문과 문 사이의 창문 (밤하늘)
+    [-4, 4].forEach((x) => {
+      put(scene, box(1.0, 0.75, 0.05), lambert(0x1c2422), x, 1.65, HALL.back + 0.03);
+      put(scene, box(0.86, 0.6, 0.06), basic(0x0b1622), x, 1.65, HALL.back + 0.04);
+    });
+
+    // 문 3개 + 호수판 (뒷벽)
+    DOOR_X.forEach((x) => {
       const g = new THREE.Group();
-      g.position.set(d.side * (HALL.halfW - 0.02), 0, d.z);
-      put(g, box(0.1, 2.25, 1.25), lambert(0x232a28), 0, 1.12, 0);                        // 문틀
-      const hinge = new THREE.Group();                                                    // 경첩 (문이 열릴 때 회전)
-      hinge.position.set(-d.side * 0.04, 0, 0.5);
-      const leaf = put(hinge, box(0.06, 2.05, 1.0), lambert(0x6b4a36), 0, 1.05, -0.5);
-      put(leaf, box(0.02, 0.5, 0.6), lambert(0x5a3d2c), -d.side * 0.035, 0.45, 0);
-      put(leaf, box(0.02, 0.5, 0.6), lambert(0x5a3d2c), -d.side * 0.035, -0.45, 0);
-      put(leaf, box(0.06, 0.06, 0.06), lambert(0xc9b26a), -d.side * 0.06, -0.05, -0.38);  // 손잡이
+      g.position.set(x, 0, HALL.back + 0.02);
+      put(g, box(1.25, 2.25, 0.1), lambert(0x232a28), 0, 1.12, 0);                       // 문틀
+      const hinge = new THREE.Group();                                                   // 경첩 (문이 열릴 때 회전)
+      hinge.position.set(-0.5, 0, 0.06);
+      const leaf = put(hinge, box(1.0, 2.05, 0.06), lambert(0x6b4a36), 0.5, 1.05, 0);
+      put(leaf, box(0.6, 0.5, 0.02), lambert(0x5a3d2c), 0, 0.45, 0.035);
+      put(leaf, box(0.6, 0.5, 0.02), lambert(0x5a3d2c), 0, -0.45, 0.035);
+      put(leaf, box(0.06, 0.06, 0.06), lambert(0xc9b26a), 0.38, -0.05, 0.06);            // 손잡이
       g.add(hinge);
       const plateMat = basic(0xffffff);
-      const plate = put(g, new THREE.PlaneGeometry(0.42, 0.21), plateMat, -d.side * 0.07, 2.42, 0);
-      plate.rotation.y = -d.side * Math.PI / 2;
+      put(g, new THREE.PlaneGeometry(0.64, 0.28), plateMat, 0, 2.45, 0.07);
       scene.add(g);
-      doors.push({ side: d.side, z: d.z, hinge });
-      plate.userData.tag = "door-" + plates.length;     // 문패를 누르면 그 호수 낱말을 준다
-      plateMeshes.push(plate);
-      // 문 전체도 누를 수 있게: 보이지 않는 판 (문패가 작아 멀리서 누르기 어렵기 때문)
-      const hit = put(g, box(0.16, 2.6, 1.2), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }), -d.side * 0.06, 1.3, 0);
-      hit.userData.tag = "door-" + plates.length;
-      plateMeshes.push(hit);
+      doors.push({ x, hinge });
       plates.push(plateMat);
     });
 
     // 천장 등
-    lamp = put(scene, box(0.9, 0.06, 0.35), basic(0xfff3c4), 0, HALL.height - 0.04, -4);
-    put(scene, box(0.9, 0.06, 0.35), basic(0x8a8468), 0, HALL.height - 0.04, -11);
-    lampLight = new THREE.PointLight(0xffe6b0, LAMP, 18, 1.2);
-    lampLight.position.set(0, 2.6, -4);
-    scene.add(lampLight);
-    const near = new THREE.PointLight(0x9fb7c9, 0.9, 10, 1.2);
-    near.position.set(0.5, 2.4, 0.5);
-    scene.add(near);
+    [-11, -4, 4, 11].forEach((x) => {
+      const mat = basic(0xfff3c4);
+      put(scene, box(0.9, 0.06, 0.35), mat, x, HALL.height - 0.04, 0.4);
+      const light = new THREE.PointLight(0xffe6b0, LAMP, 10, 1.2);
+      light.position.set(x, 2.6, 0.6);
+      scene.add(light);
+      lamps.push({ mat, light });
+    });
     scene.add(new THREE.AmbientLight(0x8fa3aa, 0.85));
   }
 
   function setRoomNumbers(floorNo) {
     plates.forEach((material, i) => {
       if (material.map) material.map.dispose();
-      material.map = pixelTexture(32, 16, (g) => {
-        g.fillStyle = "#d9d2b0"; g.fillRect(0, 0, 32, 16);
-        g.fillStyle = "#1c211f"; g.fillRect(0, 0, 32, 1); g.fillRect(0, 15, 32, 1); g.fillRect(0, 0, 1, 16); g.fillRect(31, 0, 1, 16);
-        g.font = "bold 12px monospace"; g.textAlign = "center"; g.textBaseline = "middle";
-        g.fillText(String(floorNo * 100 + i + 1), 16, 9);
+      material.map = pixelTexture(64, 28, (g) => {
+        g.fillStyle = "#d9d2b0"; g.fillRect(0, 0, 64, 28);
+        g.fillStyle = "#1c211f"; g.fillRect(0, 0, 64, 2); g.fillRect(0, 26, 64, 2); g.fillRect(0, 0, 2, 28); g.fillRect(62, 0, 2, 28);
+        g.font = "bold 20px monospace"; g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText(String(floorNo * 100 + i + 1), 32, 15);
       });
       material.needsUpdate = true;
     });
@@ -272,7 +264,7 @@ const CctvView = (() => {
       put(g, box(0.36, 0.34, 0.75), fur, s * 0.5, 0.2, 0.62);
       put(g, box(0.3, 0.28, 0.06), light, s * 0.5, 0.2, 1.0);
     });
-    const pot = new THREE.Group(); pot.position.set(0, 0.48, 0.78); pot.userData.tag = "honey"; g.add(pot);  // 꿀단지
+    const pot = new THREE.Group(); pot.position.set(0, 0.48, 0.78); g.add(pot);  // 꿀단지
     put(pot, cyl(0.3, 0.24, 0.5, 6), lambert(0x9c5a2c));
     put(pot, cyl(0.27, 0.27, 0.04, 6), honey, 0, 0.26, 0);
     const armL = put(body, box(0.26, 0.7, 0.26), fur, -0.72, 1.1, 0.3);
@@ -370,12 +362,15 @@ const CctvView = (() => {
     if (b) b.scale.y = 1 + Math.sin(t * 2.4) * (amount || 0.03);
   };
 
+  // 층마다 카메라가 처음 볼 곳 (x). 이상현상이 화면 안에서 시작하게 한다
+  const FOCUS = { hamster_clone: -6.5, gecko_moonwalk: 0, square_cat: 0.5, honey_bear: 1.5, neon_hedgehog: -6, koala_small_door: 6, empty_hall: 0, deer_boxes: -3.2 };
+
   // ---------- 장면 (층별 이상현상) ----------
+  // 좌표: x = 복도를 따라 (문 01호 -8 · 02호 0 · 03호 8), z = 뒷벽(-1.2) → 카메라 쪽
   const SCENES = {
-    // 1층: 햄스터가 끝없이 불어난다
+    // 1층: 101호 앞에서 햄스터가 끝없이 불어난다
     hamster_clone(root) {
-      // 해바라기씨 봉지 (미끼 낱말)
-      const sack = new THREE.Group(); sack.position.set(1.15, 0, -1.4); sack.userData.tag = "seeds"; root.add(sack);
+      const sack = new THREE.Group(); sack.position.set(-6.4, 0, -0.6); root.add(sack);   // 해바라기씨 봉지
       put(sack, box(0.34, 0.32, 0.22), lambert(0xd8c27a), 0, 0.16, 0);
       put(sack, box(0.36, 0.06, 0.24), lambert(0xb89a4a), 0, 0.33, 0);
       put(sack, box(0.12, 0.12, 0.02), lambert(0x3a2a14), 0, 0.17, 0.115);
@@ -385,15 +380,13 @@ const CctvView = (() => {
       const spawn = (x, z, pop) => {
         const h = hamster(tints[list.length % tints.length]);
         h.position.set(x, 0, z);
-        h.userData.tag = "hamster";
-        const a = r() * Math.PI * 2;
-        list.push({ h, vx: Math.cos(a) * (0.4 + r() * 0.6), vz: Math.sin(a) * (0.4 + r() * 0.6), born: pop ? time : -10, phase: r() * 6 });
+        list.push({ h, vx: (r() > 0.5 ? 1 : -1) * (0.6 + r() * 0.9), vz: (r() - 0.5) * 0.8, born: pop ? time : -10, phase: r() * 6 });
         root.add(h);
       };
-      spawn(-0.4, -2.6, false); spawn(0.4, -2.2, false);
+      spawn(-8.4, -0.3, false); spawn(-7.5, 0.4, false);
       let nextAt = 1.5;
       return (t, dt) => {
-        if (list.length < 9 && t > nextAt) {          // ver8: 9마리에서 멈춘다 (보드의 "6마리 이상"과 맞도록)
+        if (list.length < 9 && t > nextAt) {          // 9마리에서 멈춘다 (보드의 "6마리 이상"과 맞도록)
           const parent = list[(r() * list.length) | 0].h.position;
           spawn(parent.x, parent.z, true);
           nextAt = t + Math.max(0.25, 1.1 - list.length * 0.03);
@@ -401,28 +394,27 @@ const CctvView = (() => {
         list.forEach((o) => {
           const p = o.h.position;
           p.x += o.vx * dt; p.z += o.vz * dt;
-          if (p.x < -1.6 || p.x > 1.6) { o.vx = -o.vx; p.x = Math.max(-1.6, Math.min(1.6, p.x)); }
-          if (p.z < -8 || p.z > -0.3) { o.vz = -o.vz; p.z = Math.max(-8, Math.min(-0.3, p.z)); }
+          if (p.x < -12.5 || p.x > -2) { o.vx = -o.vx; p.x = Math.max(-12.5, Math.min(-2, p.x)); }
+          if (p.z < -0.8 || p.z > 2) { o.vz = -o.vz; p.z = Math.max(-0.8, Math.min(2, p.z)); }
           o.h.rotation.y = Math.atan2(o.vx, o.vz);
           const grow = Math.min(1, (t - o.born) / 0.4);
-          o.h.scale.setScalar(grow * 1.25);
+          o.h.scale.setScalar(grow * 1.5);
           o.h.position.y = Math.abs(Math.sin(t * 9 + o.phase)) * 0.05;
           breathe(o.h, t + o.phase, 0.05);
         });
       };
     },
 
-    // 2층: 게코도마뱀의 문워크 (앞을 보고 뒤로 미끄러진다)
+    // 2층: 202호 앞, 게코도마뱀의 문워크 (앞을 보고 뒤로 미끄러진다)
     gecko_moonwalk(root) {
-      const g = gecko(); g.userData.tag = "gecko";
-      g.rotation.y = Math.PI / 2;                 // 오른쪽을 보고
+      const g = gecko();
       root.add(g);
       return (t) => {
-        const span = 2.6, cycle = (t * 0.45) % 2;
+        const span = 3.2, cycle = (t * 0.4) % 2;
         const k = cycle < 1 ? cycle : 2 - cycle;   // 0→1→0 왕복
         const dirLeft = cycle < 1;                 // 보는 방향의 반대로 이동
         g.rotation.y = dirLeft ? Math.PI / 2 : -Math.PI / 2;
-        g.position.set(span / 2 - k * span, 0, -2.8);
+        g.position.set(span / 2 - k * span, 0, 0.6);
         g.scale.setScalar(1.35);
         const s = Math.sin(t * 5);
         g.userData.legs[0].rotation.x = s * 0.55;
@@ -435,12 +427,12 @@ const CctvView = (() => {
       };
     },
 
-    // 3층: 완벽한 네모가 된 고양이
+    // 3층: 302호 앞, 완벽한 네모가 된 고양이
     square_cat(root) {
-      const c = cubeCat(); c.userData.tag = "cat";
-      c.position.set(-0.3, 0, -2.6);
+      const c = cubeCat();
+      c.position.set(0.9, 0, 0.5);
       c.scale.setScalar(1.25);
-      c.rotation.y = 0.35;
+      c.rotation.y = -0.35;
       root.add(c);
       return (t) => {
         breathe(c, t, 0.025);
@@ -452,9 +444,9 @@ const CctvView = (() => {
 
     // 4층: 복도 한가운데서 꿀을 퍼먹는 곰
     honey_bear(root) {
-      const b = bear(); b.userData.tag = "bear";
-      b.position.set(-0.1, 0, -3.4);
-      b.rotation.y = 0.2;
+      const b = bear();
+      b.position.set(2.4, 0, 0.4);
+      b.rotation.y = -0.2;
       root.add(b);
       return (t) => {
         const k = (Math.sin(t * 2.2) + 1) / 2;     // 0 = 단지, 1 = 입
@@ -465,13 +457,14 @@ const CctvView = (() => {
       };
     },
 
-    // 5층: 형광 초록으로 번쩍이는 고슴도치
+    // 5층: 형광 초록으로 번쩍이며 복도를 가로지르는 고슴도치
     neon_hedgehog(root) {
-      const h = hedgehog(); h.userData.tag = "hedgehog";
+      const h = hedgehog();
+      h.rotation.y = Math.PI / 2;                  // 오른쪽을 보고 걷는다
       root.add(h);
       return (t) => {
-        const k = (t * 0.12) % 1;
-        h.position.set(Math.sin(t * 0.7) * 0.6, Math.abs(Math.sin(t * 6)) * 0.03, -7 + k * 6);
+        const k = (t * 0.05) % 1;
+        h.position.set(-11 + k * 22, Math.abs(Math.sin(t * 6)) * 0.03, 0.6 + Math.sin(t * 0.7) * 0.3);
         h.scale.setScalar(1.5);
         const pulse = 0.55 + 0.45 * Math.sin(t * 7) * Math.sin(t * 2.3);
         h.userData.neon.color.setRGB(0.22 + 0.5 * pulse, 1, 0.08 + 0.5 * pulse);
@@ -480,24 +473,23 @@ const CctvView = (() => {
       };
     },
 
-    // 6층: 복도 구석의 아주 작은 문으로 들어가는 코알라
+    // 6층: 뒷벽의 아주 작은 문으로 들어가는 코알라
     koala_small_door(root) {
-      const doorX = -HALL.halfW + 0.03, doorZ = -3.4;
-      const frame = new THREE.Group(); frame.position.set(doorX, 0, doorZ); frame.userData.tag = "tinydoor"; root.add(frame);
-      put(frame, box(0.06, 0.62, 0.5), lambert(0x232a28), 0, 0.31, 0);
-      const inside = put(frame, box(0.07, 0.52, 0.4), basic(0x000000), 0.005, 0.27, 0);
-      const hinge = new THREE.Group(); hinge.position.set(0.05, 0, 0.2); frame.add(hinge);
-      put(hinge, box(0.04, 0.52, 0.4), lambert(0x8a2f2f), 0, 0.27, -0.2);
-      put(hinge, box(0.04, 0.04, 0.04), lambert(0xc9b26a), 0.03, 0.27, -0.34);
-      const k = koala(); k.userData.tag = "koala";
+      const doorX = 4.6, wallZ = HALL.back + 0.03;
+      const frame = new THREE.Group(); frame.position.set(doorX, 0, wallZ); root.add(frame);
+      put(frame, box(0.5, 0.62, 0.06), lambert(0x232a28), 0, 0.31, 0);
+      const inside = put(frame, box(0.4, 0.52, 0.07), basic(0x000000), 0, 0.27, 0.005);
+      const hinge = new THREE.Group(); hinge.position.set(-0.2, 0, 0.05); frame.add(hinge);
+      put(hinge, box(0.4, 0.52, 0.04), lambert(0x8a2f2f), 0.2, 0.27, 0);
+      put(hinge, box(0.04, 0.04, 0.04), lambert(0xc9b26a), 0.34, 0.27, 0.03);
+      const k = koala();
       root.add(k);
       return (t) => {
         const c = t % 9;                           // 9초 주기: 걸어온다 → 문이 열린다 → 줄어들며 들어간다
         const walk = Math.min(1, c / 4.5);
         const enter = Math.max(0, Math.min(1, (c - 5) / 2));
-        const x = 1.2 + (doorX + 0.55 - 1.2) * walk - enter * 0.5;
-        k.position.set(x, 0, doorZ);
-        k.rotation.y = -Math.PI / 2;               // 왼쪽 벽을 보고
+        k.position.set(10 + (doorX - 10) * walk, 0, 0.4 + (wallZ + 0.1 - 0.4) * enter);
+        k.rotation.y = enter > 0 ? Math.PI : -Math.PI / 2;   // 걸을 땐 왼쪽, 들어갈 땐 벽 쪽
         k.scale.setScalar(1.25 * (1 - enter * 0.75));
         k.visible = c < 7.2;
         const s = Math.sin(t * 6) * (walk < 1 || enter > 0 ? 1 : 0);
@@ -505,9 +497,21 @@ const CctvView = (() => {
         k.userData.legs[1].rotation.x = -s * 0.5;
         k.userData.body.rotation.z = s * 0.05;
         const open = Math.max(0, Math.min(1, (c - 4.2) / 0.8)) - Math.max(0, Math.min(1, (c - 7.4) / 0.6));
-        hinge.rotation.y = open * 1.7;
+        hinge.rotation.y = -open * 1.7;
         inside.material.color.setRGB(open * 1.0, open * 0.75, open * 0.35);   // 문 안쪽의 따뜻한 빛
         breathe(k, t, 0.03);
+      };
+    },
+
+    // 7층: 텅 빈 복도. 아무도 없는데 등은 깜빡이고 702호 문이 혼자 움직인다
+    empty_hall() {
+      return (t) => {
+        const flick = (Math.sin(t * 31) > 0.72 && Math.sin(t * 1.3) > 0.2) ? 0.25 : 1;
+        lamps[2].light.intensity = LAMP * flick;
+        lamps[2].mat.color.setRGB(1 * flick, 0.95 * flick, 0.77 * flick);
+        const c = t % 11;
+        const open = Math.max(0, Math.min(1, (c - 6) / 1.5)) - Math.max(0, Math.min(1, (c - 9) / 0.4));
+        doors[1].hinge.rotation.y = -open * 0.5;
       };
     },
 
@@ -522,13 +526,12 @@ const CctvView = (() => {
       const pile = [];
       for (let i = 0; i < 12; i++) {                                          // 3줄 x 4단
         const col = i % 3, row = (i / 3) | 0;
-        const b = put(root, box(0.62, 0.5, 0.62), boxMat, -1.15 + (row % 2) * 0.06, 0.25 + row * 0.5, -4.4 + col * 0.68);
-        b.userData.tag = "boxes";
+        const b = put(root, box(0.62, 0.5, 0.62), boxMat, -5.2 + col * 0.68 + (row % 2) * 0.06, 0.25 + row * 0.5, -0.7);
         b.rotation.y = ((i * 37) % 7 - 3) * 0.03;
         pile.push(b);
       }
-      const d = deer(); d.userData.tag = "deer";
-      d.rotation.y = -Math.PI / 2;                 // 상자 더미(왼쪽 벽)를 보고
+      const d = deer();
+      d.rotation.y = -Math.PI / 2;                 // 상자 더미(왼쪽)를 보고
       root.add(d);
       const carried = put(d, box(0.5, 0.4, 0.5), boxMat, 0, 1.75, 1.05);      // 입에 문 상자
       return (t) => {
@@ -539,25 +542,13 @@ const CctvView = (() => {
           else b.scale.setScalar(1);
         });
         const k = (c / 1.1) % 1;                   // 한 상자를 나르는 동안 0→1
-        d.position.set(0.55 - Math.sin(k * Math.PI) * 0.85, 0, -3.7);
+        d.position.set(-1.4 - Math.sin(k * Math.PI) * 1.1, 0, 0.3);
         carried.visible = k < 0.5 && placed < 12;
         const s = Math.sin(t * 9);
         d.userData.legs[0].rotation.x = s * 0.4; d.userData.legs[3].rotation.x = s * 0.4;
         d.userData.legs[1].rotation.x = -s * 0.4; d.userData.legs[2].rotation.x = -s * 0.4;
         d.userData.head.rotation.x = Math.sin(t * 2.2) * 0.12;
         breathe(d, t, 0.015);
-      };
-    },
-
-    // 7층: 텅 빈 복도. 아무도 없는데 등은 깜빡이고 문이 혼자 움직인다
-    empty_hall() {
-      return (t) => {
-        const flick = (Math.sin(t * 31) > 0.72 && Math.sin(t * 1.3) > 0.2) ? 0.25 : 1;
-        lampLight.intensity = LAMP * flick;
-        lamp.material.color.setRGB(1 * flick, 0.95 * flick, 0.77 * flick);
-        const c = t % 11;
-        const open = Math.max(0, Math.min(1, (c - 6) / 1.5)) - Math.max(0, Math.min(1, (c - 9) / 0.4));
-        doors[1].hinge.rotation.y = -doors[1].side * open * 0.5;
       };
     },
   };
@@ -582,18 +573,16 @@ const CctvView = (() => {
       host = container;
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x04070a);
-      scene.fog = new THREE.Fog(0x04070a, 7, 20);
-      camera = new THREE.PerspectiveCamera(68, W / H, 0.1, 40);    // 경비원의 눈높이
-      camera.rotation.order = "YXZ";
-      handLight = new THREE.PointLight(0xfff0d0, 0.75, 7, 1.3);     // 손전등
-      scene.add(handLight);
-      raycaster = new THREE.Raycaster();
+      scene.fog = new THREE.Fog(0x04070a, 14, 30);
+      camera = new THREE.PerspectiveCamera(CAM.fov, W / H, 0.1, 60);
+      camera.rotation.set(-Math.atan2(CAM.y - CAM.lookY, CAM.z - HALL.back), 0, 0);   // 살짝 내려다본다
       buildHall();
       actors = new THREE.Group();
       scene.add(actors);
       renderer.domElement.className = "cctv-canvas";
       container.appendChild(renderer.domElement);
       ok = true;
+      fit();
       if (typeof ResizeObserver === "function") new ResizeObserver(() => fit()).observe(container);
       window.addEventListener("resize", fit);
     } catch (e) {
@@ -607,25 +596,19 @@ const CctvView = (() => {
     if (!ok) return;
     clear(actors);
     doors.forEach((d) => { d.hinge.rotation.y = 0; });
-    lampLight.intensity = LAMP;
-    lamp.material.color.set(0xfff3c4);
+    lamps.forEach((l) => { l.light.intensity = LAMP; l.mat.color.set(0xfff3c4); });
     setRoomNumbers(floorNo);
     time = 0;
-    walk.node = 0; walk.yaw = 0; walk.pitch = -0.1; walk.x = NODES[0].x; walk.z = NODES[0].z;
     update = SCENES[key] ? SCENES[key](actors) : null;
+    fit();
+    pan.x = pan.target = Math.max(-pan.max, Math.min(pan.max, FOCUS[key] || 0));
     if (!running) { running = true; last = performance.now(); requestAnimationFrame(loop); }
     render(0);
   }
 
   function placeCamera(dt) {
-    const n = NODES[walk.node], k = Math.min(1, dt * 5);          // 지점 사이를 부드럽게 걷는다
-    walk.x += (n.x - walk.x) * k;
-    walk.z += (n.z - walk.z) * k;
-    const moving = Math.abs(n.x - walk.x) + Math.abs(n.z - walk.z) > 0.05;
-    const bob = moving ? Math.abs(Math.sin(time * 9)) * 0.05 : 0;  // 걸을 때 흔들림
-    camera.position.set(walk.x, EYE + bob, walk.z);
-    camera.rotation.set(walk.pitch, walk.yaw, 0);
-    handLight.position.copy(camera.position);
+    pan.x += (pan.target - pan.x) * Math.min(1, dt * 6);          // 부드럽게 미끄러진다
+    camera.position.set(pan.x, CAM.y, CAM.z);
   }
 
   function render(dt) {
@@ -646,8 +629,8 @@ const CctvView = (() => {
 
   function stop() { running = false; }
 
-  // ---- 걷기 / 둘러보기 / 누르기 ----
   // 화면(모니터) 크기가 바뀌면 렌더 크기와 카메라 비율을 맞춘다: 높이는 180 고정, 너비는 비율대로
+  // 보이는 폭이 바뀌므로 좌우로 갈 수 있는 끝(pan.max)도 다시 잰다
   function fit() {
     if (!ok || !host) return;
     const w = host.clientWidth, h = host.clientHeight;
@@ -656,40 +639,26 @@ const CctvView = (() => {
     renderer.setSize(RW, RH, false);
     camera.aspect = aspect;
     camera.updateProjectionMatrix();
+    const halfW = (CAM.z - HALL.back) * Math.tan((CAM.fov / 2) * Math.PI / 180) * aspect;
+    pan.max = Math.max(0, HALL.halfLen - 0.2 - halfW);
+    pan.target = Math.max(-pan.max, Math.min(pan.max, pan.target));
     renderer.render(scene, camera);
   }
 
-  function step(dir) {                                   // +1 앞으로, -1 뒤로. 움직였으면 true
-    const next = Math.max(0, Math.min(NODES.length - 1, walk.node + dir));
-    if (next === walk.node) return false;
-    walk.node = next;
+  // ---- 좌우 이동 ----
+  function panTo(x) {
+    const next = Math.max(-pan.max, Math.min(pan.max, x));
+    if (Math.abs(next - pan.target) < 0.01) return false;
+    pan.target = next;
     return true;
   }
-  function look(dYaw, dPitch) {
-    walk.yaw = Math.max(-YAW_MAX, Math.min(YAW_MAX, walk.yaw + dYaw));
-    walk.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, walk.pitch + (dPitch || 0)));
-  }
-  // 화면 좌표(-1~1)에 있는 것을 고른다: 이름표(tag)를 돌려주고, 없으면 null
-  //  동물·물체(actors)와 문패를 함께 본다. 이름표가 없는 동물은 "thing".
-  function pick(x, y) {
-    if (!ok) return null;
-    raycaster.setFromCamera({ x, y }, camera);
-    const hits = raycaster.intersectObjects(actors.children.concat(plateMeshes), true);
-    for (const h of hits) {
-      if (!h.object.isMesh) continue;
-      let hidden = false, tag = null;
-      for (let o = h.object; o; o = o.parent) { if (!o.visible) hidden = true; if (!tag && o.userData && o.userData.tag) tag = o.userData.tag; }
-      if (hidden) continue;
-      return tag || "thing";
-    }
-    return null;
-  }
+  const step = (dir) => panTo(pan.target + dir * PAN_STEP);    // +1 오른쪽, -1 왼쪽. 움직였으면 true
+  const drag = (dx) => panTo(pan.target + dx);                 // 화면을 끌 때 (복도 단위)
 
   return {
-    init, show, stop, step, look, pick, fit,
+    init, show, stop, fit, pan: step, drag,
     get ok() { return ok; },
-    get node() { return walk.node; },
-    get lastNode() { return NODES.length - 1; },
-    get hasActors() { return actors ? actors.children.length > 0 : false; },
+    get atLeft() { return pan.target <= -pan.max + 0.01; },
+    get atRight() { return pan.target >= pan.max - 0.01; },
   };
 })();

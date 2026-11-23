@@ -2,7 +2,7 @@
 // data.js  — 담당: B (콘텐츠 & 연출)
 //
 // ▶ 모든 스테이지가 "같은 데이터"를 본다. 표는 2개:
-//     출입표(df_entry, 82행) + 배달표(df_delivery, 38행) = 120행
+//     출입표(df_entry, 82행) + 택배장부(df_delivery, 38행) = 120행
 // ▶ 구성: RESIDENTS(주민 명부) + ENTRY_LOGS / DELIVERY_LOGS(기록) → 합쳐서 표 생성
 // ▶ 각 행에는 그 주민의 정보(호수·동물종류·주민등록번호·나이·학생여부·입주날짜·운동시설)가 붙는다.
 //    주민 이름 열은 없다. (RESIDENTS.key 는 이 파일 안에서만 쓰는 식별용)
@@ -223,11 +223,11 @@ const DELIVERY_ROWS = DELIVERY_LOGS.map((l) => ({
 // 게임/파이썬이 읽는 표 목록. varName = 플레이어가 입력창에 쓰는 변수 이름
 const TABLES = [
   { key: "entry",    title: "출입표", varName: "df_entry",    columns: ENTRY_COLUMNS,    rows: ENTRY_ROWS },
-  { key: "delivery", title: "배달표", varName: "df_delivery", columns: DELIVERY_COLUMNS, rows: DELIVERY_ROWS },
+  { key: "delivery", title: "택배장부", varName: "df_delivery", columns: DELIVERY_COLUMNS, rows: DELIVERY_ROWS },
 ];
 
 // ---------- 5) 스테이지(층) 정의 ----------
-// evidence: 판정 후 하이라이트할 근거 행(로그 id, 출입표 E.. / 배달표 D..)
+// evidence: 판정 후 하이라이트할 근거 행(로그 id, 출입표 E.. / 택배장부 D..)
 const FLOORS = [
   {
     floor: 1,
@@ -260,7 +260,7 @@ const FLOORS = [
     answer: "next",
     evidence: ["D01", "E08"],
     explanation:
-      "배달표에 302호 정육면체 유리 상자가 20:05에 도착했고, 15분 뒤 출입표에 고양이가 출입했어요. 네모가 된 게 아니라 상자에 쏙 들어간 것! → TO NEXT FLOOR",
+      "택배장부에 302호 정육면체 유리 상자가 20:05에 도착했고, 15분 뒤 출입표에 고양이가 출입했어요. 네모가 된 게 아니라 상자에 쏙 들어간 것! → TO NEXT FLOOR",
   },
   {
     floor: 4,
@@ -282,7 +282,7 @@ const FLOORS = [
     answer: "next",
     evidence: ["D03", "E10"],
     explanation:
-      "배달표에 501호 야광 페인트가 20:30에 도착했고, 21:00 고슴도치 출입과 함께 빛감지가 On이에요. 페인트를 칠한 고슴도치였을 뿐! → TO NEXT FLOOR",
+      "택배장부에 501호 야광 페인트가 20:30에 도착했고, 21:00 고슴도치 출입과 함께 빛감지가 On이에요. 페인트를 칠한 고슴도치였을 뿐! → TO NEXT FLOOR",
   },
   {
     floor: 6,
@@ -304,7 +304,7 @@ const FLOORS = [
     answer: "report",
     evidence: ["E12"],
     explanation:
-      "01:30에 702호 카피바라의 출입 기록이 있고 빛감지도 On인데, 영상에는 아무도 없어요. 배달표엔 702호 기록이 없어서 빛을 설명해 줄 것도 없어요. 데이터는 '누군가 있었다'고 하는데 영상은 '없다'고 하니 불일치 → REPORT",
+      "01:30에 702호 카피바라의 출입 기록이 있고 빛감지도 On인데, 영상에는 아무도 없어요. 택배장부엔 702호 기록이 없어서 빛을 설명해 줄 것도 없어요. 데이터는 '누군가 있었다'고 하는데 영상은 '없다'고 하니 불일치 → REPORT",
   },
   {
     floor: 8,
