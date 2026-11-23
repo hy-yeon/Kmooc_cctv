@@ -1,6 +1,6 @@
 // ============================================================
 // game.js — 담당: A (게임 엔지니어)
-// CCTV 좌우 둘러보기, 층 진행, 새 창(모달), 보고서 그래프(SVG), 책상 장식.
+// CCTV 좌우 둘러보기 · 숨은 이상현상 누르기 · 지지직/점프 스케어, 층 진행, 새 창(모달), 보고서 그래프(SVG), 책상 장식.
 // 조사 흐름(책 · 렌즈 · REPORT 보드 · 도장 · 수칙 · 보고서 · 정산서)은 investigate.js (Inv) 가 맡는다.
 // CCTV 연출은 scenes.js (CctvView), 소리는 sound.js (Sfx) 가 맡는다.
 // ============================================================
@@ -8,6 +8,7 @@
 // ---- 상태 -------------------------------------------------
 const state = {
   idx: 0,         // 현재 층 인덱스 (0 ~ FLOORS.length - 1)
+  found: false,   // 이 층의 이상현상을 CCTV 에서 눌러 찾았는지 (찾아야 조사가 열린다)
 };
 
 // ---- DOM --------------------------------------------------
@@ -27,6 +28,8 @@ const el = {
   btnNext: $("btn-next"),
   btnContinue: $("btn-continue"),
   game: $("game"),
+  view: $("view"),
+  desk: $("desk"),
 };
 
 const currentFloor = () => FLOORS[state.idx];
@@ -44,9 +47,76 @@ function renderCctv(f) {
   CctvView.fit();                               // 화면이 막 보이게 된 경우 크기와 좌우 끝을 다시 잰다
   el.cctvCam.textContent = `CAM ${f.floor}F · ${f.place || "복도"}`;
   el.cctvTime.textContent = f.cctvTime;
-  // 3D 가 안 되면 볼 수 없으니 자막으로 장면을 알려 준다
-  el.caption.textContent = CctvView.ok ? "◀ ▶ 로 복도를 둘러보세요" : f.cctvCaption;
+  state.found = false;
+  $("found-badge").classList.add("hidden");
+  el.desk.classList.add("locked");
+  el.caption.classList.remove("warn");
+  el.caption.textContent = "◀ ▶ 로 둘러보고, 이상한 것을 찾으면 화면을 눌러요";
   updatePanButtons();
+}
+
+// ---- 이상현상 찾기: CCTV 에서 눌러야 책 · REPORT 보드 · 판정이 열린다 ----
+function markFound() {
+  if (state.found) return;
+  state.found = true;
+  Inv.setFound();
+  CctvView.found();                             // 아직 안 튀어나온 이상현상은 누르는 순간 튀어나온다
+  el.desk.classList.remove("locked");
+  $("found-badge").classList.remove("hidden");
+  el.caption.classList.remove("warn");
+  el.caption.textContent = currentFloor().cctvCaption + "  → 이제 장부를 열어 기록과 맞춰 보세요.";
+  document.querySelectorAll(".book").forEach((b) => b.classList.add("glow"));
+  Sfx.found();
+}
+
+// 찾기 전에 책 · 보드 · 판정을 누르면: 모니터가 흔들리고 안내가 뜬다 (investigate.js 도 부른다)
+function needFind() {
+  el.caption.textContent = "먼저 CCTV에서 이상한 것을 찾아 눌러야 조사를 시작할 수 있어요.";
+  el.caption.classList.remove("warn"); void el.caption.offsetWidth; el.caption.classList.add("warn");
+  const mon = document.querySelector(".monitor");
+  mon.classList.remove("nudge"); void mon.offsetWidth; mon.classList.add("nudge");
+  glitch(0.5, 220);
+}
+
+// ---- CCTV 잡음 (랜덤한 때에 지지직) · 점프 스케어 ----
+let glitchTimer = null, glitchEnd = null;
+function drawStatic(strength) {
+  const c = $("cctv-static"), g = c.getContext("2d"), img = g.createImageData(c.width, c.height);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = Math.random() < 0.5 ? 0 : 255 * Math.random();
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255 * Math.min(1, 0.35 + strength * 0.5) * Math.random();
+  }
+  g.putImageData(img, 0, 0);
+}
+// strength 0~1.5, ms 길이
+function glitch(strength, ms) {
+  if (!CctvView.ok || el.game.classList.contains("hidden")) return;
+  const v = el.view;
+  v.classList.add("glitch");
+  v.style.setProperty("--gk", String(strength));
+  const sig = $("cctv-signal");
+  sig.classList.toggle("hidden", !(strength > 0.9 || Math.random() < 0.3));
+  let n = 0;
+  const tick = () => { drawStatic(strength); if (++n < ms / 45) glitchEnd = setTimeout(tick, 45); else { v.classList.remove("glitch"); sig.classList.add("hidden"); } };
+  clearTimeout(glitchEnd);
+  tick();
+  if (!modal) Sfx.static(Math.min(1, strength));
+}
+function scheduleGlitch() {
+  clearTimeout(glitchTimer);
+  glitchTimer = setTimeout(() => {
+    if (!modal && !document.hidden) glitch(0.3 + Math.random() * 0.8, 120 + Math.random() * 520);
+    scheduleGlitch();
+  }, 3500 + Math.random() * 7000);
+}
+// 이상현상이 갑자기 튀어나올 때 (scenes.js 가 부른다)
+function jumpScare() {
+  Sfx.scare();
+  glitch(0.9, 260);                              // 짧게 지지직 — 튀어나온 것이 보이도록
+  const fl = $("cctv-flash");
+  fl.classList.remove("on"); void fl.offsetWidth; fl.classList.add("on");
+  const mon = document.querySelector(".monitor");
+  mon.classList.remove("shake"); void mon.offsetWidth; mon.classList.add("shake");
 }
 
 // ---- 좌우 둘러보기 (◀ ▶ · ← → · 화면 끌기) -----------------
@@ -77,19 +147,28 @@ function setupPan() {
   // 화면을 옆으로 끌어도 움직인다
   let drag = null;
   view.addEventListener("pointerdown", (e) => {
-    drag = { x: e.clientX };
+    drag = { x: e.clientX, moved: 0 };
     view.setPointerCapture(e.pointerId);
   });
   view.addEventListener("pointermove", (e) => {
     if (!drag) return;
     const dx = e.clientX - drag.x;
     drag.x = e.clientX;
+    drag.moved += Math.abs(dx);
     CctvView.drag((-dx / view.clientWidth) * 10);
     updatePanButtons();
   });
-  const end = () => { drag = null; };
-  view.addEventListener("pointerup", end);
-  view.addEventListener("pointercancel", end);
+  // 짧게 누르면(끌지 않으면) 그 자리에 이상현상이 있는지 본다
+  view.addEventListener("pointerup", (e) => {
+    const tap = drag && drag.moved < 8;
+    drag = null;
+    if (!tap || state.found) return;
+    const r = view.getBoundingClientRect();
+    const x = ((e.clientX - r.left) / r.width) * 2 - 1, y = -(((e.clientY - r.top) / r.height) * 2 - 1);
+    if (CctvView.pick(x, y)) markFound();
+    else { Sfx.click(); }
+  });
+  view.addEventListener("pointercancel", () => { drag = null; });
   window.addEventListener("resize", () => requestAnimationFrame(updatePanButtons));
 }
 
@@ -119,13 +198,13 @@ function svgEl(tag, attrs, text) {
 function chartSvg(kind, marks = []) {
   const W = 640, H = 300, L = 46, R = 16, T = 16, B = 44;
   const hours = hoursOfEntries();
-  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `${kind} 그래프: 출입시(0~23시)` });
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `${kind} 그래프: 출입 시각(0~23시)` });
   svg.appendChild(svgEl("rect", { x: 0, y: 0, width: W, height: H, fill: "#fff" }));
   const x = (h) => L + ((h + 0.5) / 24) * (W - L - R);
   const axis = (yLabel) => {
     svg.appendChild(svgEl("line", { x1: L, y1: H - B, x2: W - R, y2: H - B, stroke: "#333" }));
     for (let h = 0; h < 24; h += 2) svg.appendChild(svgEl("text", { x: x(h), y: H - B + 16, "text-anchor": "middle", "font-size": 11, fill: "#333" }, String(h)));
-    svg.appendChild(svgEl("text", { x: (L + W - R) / 2, y: H - 8, "text-anchor": "middle", "font-size": 12, fill: "#333" }, "출입시 (0~23시)"));
+    svg.appendChild(svgEl("text", { x: (L + W - R) / 2, y: H - 8, "text-anchor": "middle", "font-size": 12, fill: "#333" }, "출입 시각 (0~23시)"));
     if (yLabel) svg.appendChild(svgEl("text", { x: 12, y: (T + H - B) / 2, "text-anchor": "middle", "font-size": 12, fill: "#333", transform: `rotate(-90 12 ${(T + H - B) / 2})` }, yLabel));
   };
   const night = (h) => h <= 3;                       // 새벽 0~3시는 붉게
@@ -229,6 +308,7 @@ function startFloor() {
   el.floor.textContent = `${f.floor}층${f.place ? " " + f.place : ""} / ${FLOORS.length}층`;
   renderCctv(f);
   Inv.startFloor(f);
+  if (!CctvView.ok) markFound();                // 3D 를 못 쓰는 환경이면 찾기 단계 없이 진행
 }
 
 // 다음 층으로 (마지막 층 뒤의 보고서 · 정산서는 Inv 가 맡는다)
@@ -275,8 +355,8 @@ function toggleMute() {
 // ---- 이벤트 / 시작 ----------------------------------------
 $("book-entry").addEventListener("click", () => Inv.openBook("entry"));
 $("book-delivery").addEventListener("click", () => Inv.openBook("delivery"));
-el.btnReport.addEventListener("click", () => Inv.stamp("report"));
-el.btnNext.addEventListener("click", () => Inv.stamp("next"));
+el.btnReport.addEventListener("click", () => Inv.verdict());   // ✓ / ✗ 는 먼저 REPORT 보드를 연다
+el.btnNext.addEventListener("click", () => Inv.verdict());
 el.btnContinue.addEventListener("click", () => Inv.finishFloor());
 $("board-btn").addEventListener("click", () => Inv.openBoard());
 $("btn-start").addEventListener("click", begin);
@@ -369,3 +449,5 @@ setupPan();
 })();
 
 CctvView.init(el.cctv);
+CctvView.onScare = jumpScare;
+scheduleGlitch();

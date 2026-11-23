@@ -1,5 +1,5 @@
 // ============================================================
-// sound.js — 효과음 · 분위기 사운드
+// sound.js — 효과음 · 분위기 사운드 (CCTV 잡음 · 점프 스케어 포함)
 // 소리 파일 없이 Web Audio 로 직접 만든다 (레트로 게임기 같은 단순한 파형).
 //  - 브라우저 정책상 첫 클릭 이후에만 소리가 난다 → Sfx.unlock() 을 첫 클릭에서 부른다.
 //  - 소리를 못 쓰는 환경이면 모든 함수가 조용히 아무 일도 하지 않는다.
@@ -78,6 +78,23 @@ const Sfx = (() => {
     } catch (e) { ambience = null; }
   }
 
+  // 잡음 한 덩어리: 길이(초), 크기, 필터 중심 주파수
+  function noise(dur, vol, freq) {
+    if (!ready()) return;
+    try {
+      const t0 = ctx.currentTime, len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+      const buffer = ctx.createBuffer(1, len, ctx.sampleRate), d = buffer.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (Math.random() < 0.15 ? 1 : 0.5);   // 툭툭 끊기는 잡음
+      const src = ctx.createBufferSource(); src.buffer = buffer;
+      const band = ctx.createBiquadFilter(); band.type = "bandpass"; band.frequency.value = freq || 3000; band.Q.value = 0.4;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(vol, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      src.connect(band); band.connect(g); g.connect(master);
+      src.start(t0); src.stop(t0 + dur + 0.02);
+    } catch (e) { /* 무시 */ }
+  }
+
   function stopAmbience() {
     if (!ambience) return;
     try {
@@ -93,6 +110,17 @@ const Sfx = (() => {
     startAmbience,
     stopAmbience,
     click() { tone(880, 0.05, "square", 0.08); },
+    // CCTV 지지직
+    static(strength) { const k = strength || 1; noise(0.18 + 0.35 * k, 0.12 + 0.18 * k, 2200 + Math.random() * 2500); },
+    // 점프 스케어: 불협화음 찌르기 + 큰 잡음 + 낮은 쿵
+    scare() {
+      [466, 494, 523, 554].forEach((f, i) => tone(f, 0.9, "sawtooth", 0.16, i * 0.01, f * 0.94));
+      tone(1244, 0.5, "square", 0.08, 0, 1100);
+      tone(70, 0.8, "sine", 0.6, 0, 40);
+      noise(0.7, 0.45, 1800);
+    },
+    // 이상현상을 찾았을 때: 낮은 심장 소리 두 번
+    found() { tone(62, 0.18, "sine", 0.6, 0, 48); tone(58, 0.22, "sine", 0.5, 0.24, 44); tone(988, 0.12, "square", 0.06, 0.1); },
     open() { tone(330, 0.08, "square", 0.1); tone(660, 0.1, "square", 0.1, 0.07); },
     correct() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.14, "square", 0.14, i * 0.09)); },
     wrong() { tone(196, 0.3, "sawtooth", 0.2, 0, 98); tone(92, 0.35, "square", 0.12, 0.12, 55); },

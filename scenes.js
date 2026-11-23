@@ -1,6 +1,8 @@
 // ============================================================
 // scenes.js — CCTV 복도 연출 (PS1 레트로 스타일)
 //  복도를 옆에서 보는 고정 CCTV. 카메라는 복도를 따라 좌우로만 움직인다 (◀ ▶, 화면 끌기, ← →).
+//  이상현상은 숨어 있다: 카메라는 반대편 끝에서 시작하고, 이상현상을 눌러야(pick) 조사가 열린다.
+//  4 · 5 · 7층은 다가가면 갑자기 튀어나온다 (onScare 로 game.js 에 알린다).
 //  - CctvView.init(container) → CctvView.show(key, floor) → CctvView.pan(±1)
 //  - three.js 로 로우폴리 복도와 동물을 그리고, 저해상도로 렌더링해 크게 늘린다.
 //    꼭짓점 떨림(vertex snapping), 픽셀 텍스처(NearestFilter), 낮은 프레임(20fps)
@@ -9,7 +11,7 @@
 // ============================================================
 
 const CctvView = (() => {
-  const W = 320, H = 180, FPS = 20, LAMP = 1.5;      // W,H: 꼭짓점 떨림 격자의 기준 해상도. 실제 렌더 크기는 화면 비율에 맞춘다(fit)
+  const W = 320, H = 180, FPS = 20, LAMP = 1.35;      // W,H: 꼭짓점 떨림 격자의 기준 해상도. 실제 렌더 크기는 화면 비율에 맞춘다(fit)
   let renderer = null, scene = null, camera = null, actors = null;
   let doors = [], plates = [], lamps = [];
   let update = null, running = false, last = 0, acc = 0, time = 0, ok = false, host = null;
@@ -144,7 +146,7 @@ const CctvView = (() => {
       scene.add(light);
       lamps.push({ mat, light });
     });
-    scene.add(new THREE.AmbientLight(0x8fa3aa, 0.85));
+    scene.add(new THREE.AmbientLight(0x8fa3aa, 0.6));
   }
 
   function setRoomNumbers(floorNo) {
@@ -264,7 +266,7 @@ const CctvView = (() => {
       put(g, box(0.36, 0.34, 0.75), fur, s * 0.5, 0.2, 0.62);
       put(g, box(0.3, 0.28, 0.06), light, s * 0.5, 0.2, 1.0);
     });
-    const pot = new THREE.Group(); pot.position.set(0, 0.48, 0.78); g.add(pot);  // 꿀단지
+    const pot = new THREE.Group(); pot.position.set(0, 0.48, 0.78); pot.userData.tag = "honey"; g.add(pot);  // 꿀단지
     put(pot, cyl(0.3, 0.24, 0.5, 6), lambert(0x9c5a2c));
     put(pot, cyl(0.27, 0.27, 0.04, 6), honey, 0, 0.26, 0);
     const armL = put(body, box(0.26, 0.7, 0.26), fur, -0.72, 1.1, 0.3);
@@ -362,8 +364,20 @@ const CctvView = (() => {
     if (b) b.scale.y = 1 + Math.sin(t * 2.4) * (amount || 0.03);
   };
 
-  // 층마다 카메라가 처음 볼 곳 (x). 이상현상이 화면 안에서 시작하게 한다
-  const FOCUS = { hamster_clone: -6.5, gecko_moonwalk: 0, square_cat: 0.5, honey_bear: 1.5, neon_hedgehog: -6, koala_small_door: 6, empty_hall: 0, deer_boxes: -3.2 };
+  // 카메라는 이상현상의 반대편 끝에서 시작한다 (-1 왼쪽 끝, +1 오른쪽 끝). 직접 둘러봐야 찾을 수 있다
+  const START = { hamster_clone: 1, gecko_moonwalk: -1, square_cat: -1, honey_bear: -1, neon_hedgehog: 1, koala_small_door: -1, empty_hall: -1, deer_boxes: 1 };
+
+  // 눌러서 "찾았다"가 되는 물체 · 갑자기 튀어나오기(점프 스케어)
+  let targets = [], onScare = null, foundHook = null;   // foundHook: 이상현상을 눌렀을 때 (아직 안 튀어나왔으면 바로 튀어나온다)
+  const target = (obj) => { targets.push(obj); return obj; };
+  const scare = () => { if (onScare) onScare(); };
+  // 카메라가 x 근처에 멈춰 dwell 초 동안 머물면 true (한 번만 쓰도록 부르는 쪽에서 막는다)
+  const watching = (x, range, dwellState, dwell, dt) => {
+    const near = Math.abs(pan.x - x) < range && Math.abs(pan.x - pan.target) < 0.3;
+    dwellState.t = near ? dwellState.t + dt : 0;
+    return dwellState.t >= dwell;
+  };
+  const ease = (k) => 1 - Math.pow(1 - Math.max(0, Math.min(1, k)), 3);
 
   // ---------- 장면 (층별 이상현상) ----------
   // 좌표: x = 복도를 따라 (문 01호 -8 · 02호 0 · 03호 8), z = 뒷벽(-1.2) → 카메라 쪽
@@ -378,7 +392,7 @@ const CctvView = (() => {
       const tints = [0xd9a066, 0xe6c79a, 0xc68642];
       const r = rand(11), list = [];
       const spawn = (x, z, pop) => {
-        const h = hamster(tints[list.length % tints.length]);
+        const h = target(hamster(tints[list.length % tints.length]));
         h.position.set(x, 0, z);
         list.push({ h, vx: (r() > 0.5 ? 1 : -1) * (0.6 + r() * 0.9), vz: (r() - 0.5) * 0.8, born: pop ? time : -10, phase: r() * 6 });
         root.add(h);
@@ -407,7 +421,7 @@ const CctvView = (() => {
 
     // 2층: 202호 앞, 게코도마뱀의 문워크 (앞을 보고 뒤로 미끄러진다)
     gecko_moonwalk(root) {
-      const g = gecko();
+      const g = target(gecko());
       root.add(g);
       return (t) => {
         const span = 3.2, cycle = (t * 0.4) % 2;
@@ -429,7 +443,7 @@ const CctvView = (() => {
 
     // 3층: 302호 앞, 완벽한 네모가 된 고양이
     square_cat(root) {
-      const c = cubeCat();
+      const c = target(cubeCat());
       c.position.set(0.9, 0, 0.5);
       c.scale.setScalar(1.25);
       c.rotation.y = -0.35;
@@ -442,13 +456,35 @@ const CctvView = (() => {
       };
     },
 
-    // 4층: 복도 한가운데서 꿀을 퍼먹는 곰
+    // 4층: 처음엔 꿀단지만 있다. 다가가 보면 곰이 카메라로 덮쳐 온다 (점프 스케어) → 그 뒤 꿀을 퍼먹는다
     honey_bear(root) {
-      const b = bear();
-      b.position.set(2.4, 0, 0.4);
+      const X = 2.4;
+      const b = target(bear());
+      b.position.set(X, 0, 0.4);
       b.rotation.y = -0.2;
       root.add(b);
-      return (t) => {
+      const pot = b.children.find((c) => c.userData.tag === "honey");
+      const bodyParts = b.children.filter((c) => c !== pot);
+      bodyParts.forEach((c) => { c.visible = false; });         // 처음엔 꿀단지만 보인다
+      if (pot) target(pot);
+      const dwell = { t: 0 };
+      let popAt = null, force = false;
+      foundHook = () => { force = true; };
+      return (t, dt) => {
+        if (popAt === null && (force || watching(X, 2.6, dwell, 0.7, dt))) { popAt = t; bodyParts.forEach((c) => { c.visible = true; }); scare(); }
+        if (popAt !== null) {
+          const k = t - popAt;
+          if (k < 0.9) {                                         // 덮쳐 왔다가
+            const out = k < 0.15 ? ease(k / 0.15) : 1 - ease((k - 0.5) / 0.4);
+            b.position.set(X - 0.6 * out, 0.2 * out, 0.4 + 6.2 * out);
+            b.scale.setScalar(1 + 0.8 * out);
+            b.rotation.y = -0.2 + Math.sin(k * 40) * 0.05 * out;
+            b.userData.arm.rotation.x = -2.2;
+            b.userData.head.rotation.x = -0.3;
+            return;
+          }
+          b.position.set(X, 0, 0.4); b.scale.setScalar(1); b.rotation.y = -0.2;
+        }
         const k = (Math.sin(t * 2.2) + 1) / 2;     // 0 = 단지, 1 = 입
         b.userData.arm.rotation.x = -0.5 - k * 1.9;
         b.userData.arm.rotation.z = -0.25 - k * 0.3;
@@ -457,18 +493,31 @@ const CctvView = (() => {
       };
     },
 
-    // 5층: 형광 초록으로 번쩍이며 복도를 가로지르는 고슴도치
+    // 5층: 형광 초록 고슴도치가 복도를 가로지른다. 카메라 앞을 지날 때 번쩍이며 화면으로 달려든다 (점프 스케어)
     neon_hedgehog(root) {
-      const h = hedgehog();
+      const h = target(hedgehog());
       h.rotation.y = Math.PI / 2;                  // 오른쪽을 보고 걷는다
       root.add(h);
-      return (t) => {
-        const k = (t * 0.05) % 1;
-        h.position.set(-11 + k * 22, Math.abs(Math.sin(t * 6)) * 0.03, 0.6 + Math.sin(t * 0.7) * 0.3);
-        h.scale.setScalar(1.5);
+      let x = -11, dashAt = null, force = false;
+      foundHook = () => { force = true; };
+      return (t, dt) => {
         const pulse = 0.55 + 0.45 * Math.sin(t * 7) * Math.sin(t * 2.3);
+        if (dashAt === null) {
+          x += dt * 1.1; if (x > 11) x = -11;
+          h.position.set(x, Math.abs(Math.sin(t * 6)) * 0.03, 0.6 + Math.sin(t * 0.7) * 0.3);
+          h.scale.setScalar(1.5);
+          if (force || (t > 2 && Math.abs(x - pan.x) < 1.2 && Math.abs(pan.x - pan.target) < 0.3)) { dashAt = t; scare(); }
+        } else {
+          const k = t - dashAt;
+          const out = k < 0.18 ? ease(k / 0.18) : k < 0.55 ? 1 : 1 - ease((k - 0.55) / 0.5);
+          h.rotation.y = Math.PI / 2 * (1 - out);  // 카메라 쪽으로 돈다
+          h.position.set(x, 0.3 * out, 0.6 + 6.5 * out);
+          h.scale.setScalar(1.5 + 1.8 * out);
+          if (k > 1.05) { h.rotation.y = Math.PI / 2; dashAt = Infinity; }   // 한 번만
+        }
+        const flash = dashAt !== null && dashAt !== Infinity ? 3 : 0;
         h.userData.neon.color.setRGB(0.22 + 0.5 * pulse, 1, 0.08 + 0.5 * pulse);
-        h.userData.glow.intensity = 0.9 + pulse * 1.6;
+        h.userData.glow.intensity = 0.9 + pulse * 1.6 + flash;
         breathe(h, t, 0.04);
       };
     },
@@ -476,13 +525,13 @@ const CctvView = (() => {
     // 6층: 뒷벽의 아주 작은 문으로 들어가는 코알라
     koala_small_door(root) {
       const doorX = 4.6, wallZ = HALL.back + 0.03;
-      const frame = new THREE.Group(); frame.position.set(doorX, 0, wallZ); root.add(frame);
+      const frame = target(new THREE.Group()); frame.position.set(doorX, 0, wallZ); root.add(frame);
       put(frame, box(0.5, 0.62, 0.06), lambert(0x232a28), 0, 0.31, 0);
       const inside = put(frame, box(0.4, 0.52, 0.07), basic(0x000000), 0, 0.27, 0.005);
       const hinge = new THREE.Group(); hinge.position.set(-0.2, 0, 0.05); frame.add(hinge);
       put(hinge, box(0.4, 0.52, 0.04), lambert(0x8a2f2f), 0.2, 0.27, 0);
       put(hinge, box(0.04, 0.04, 0.04), lambert(0xc9b26a), 0.34, 0.27, 0.03);
-      const k = koala();
+      const k = target(koala());
       root.add(k);
       return (t) => {
         const c = t % 9;                           // 9초 주기: 걸어온다 → 문이 열린다 → 줄어들며 들어간다
@@ -503,15 +552,30 @@ const CctvView = (() => {
       };
     },
 
-    // 7층: 텅 빈 복도. 아무도 없는데 등은 깜빡이고 702호 문이 혼자 움직인다
+    // 7층: 텅 빈 복도. 702호 문 앞에 머물면 불이 꺼지고 문이 쾅 열린다 (점프 스케어). 그 뒤로도 문이 혼자 움직인다
     empty_hall() {
-      return (t) => {
-        const flick = (Math.sin(t * 31) > 0.72 && Math.sin(t * 1.3) > 0.2) ? 0.25 : 1;
-        lamps[2].light.intensity = LAMP * flick;
-        lamps[2].mat.color.setRGB(1 * flick, 0.95 * flick, 0.77 * flick);
-        const c = t % 11;
-        const open = Math.max(0, Math.min(1, (c - 6) / 1.5)) - Math.max(0, Math.min(1, (c - 9) / 0.4));
-        doors[1].hinge.rotation.y = -open * 0.5;
+      const door = doors[1];
+      target(door.hinge);
+      const dwell = { t: 0 };
+      let slamAt = null, force = false;
+      foundHook = () => { force = true; };
+      return (t, dt) => {
+        if (slamAt === null && (force || watching(door.x, 3, dwell, 0.8, dt))) { slamAt = t; scare(); }
+        let lampK = (Math.sin(t * 31) > 0.72 && Math.sin(t * 1.3) > 0.2) ? 0.25 : 1;
+        let open;
+        if (slamAt !== null && t - slamAt < 2.2) {
+          const k = t - slamAt;
+          open = k < 0.08 ? k / 0.08 * 2.8 : 2.8 - Math.min(2.3, (k - 0.08) * 1.1);   // 쾅 열렸다가 천천히 닫힌다
+          if (k < 0.7) lampK = 0;                                                       // 정전
+          lamps.forEach((l) => { l.light.intensity = LAMP * (k < 0.7 ? 0.05 : 1); });
+        } else {
+          const c = t % 11;
+          open = (Math.max(0, Math.min(1, (c - 6) / 1.5)) - Math.max(0, Math.min(1, (c - 9) / 0.4))) * 0.5;
+          lamps.forEach((l, i) => { if (i !== 2) l.light.intensity = LAMP; });
+        }
+        lamps[2].light.intensity = LAMP * lampK;
+        lamps[2].mat.color.setRGB(1 * lampK, 0.95 * lampK, 0.77 * lampK);
+        door.hinge.rotation.y = -open;
       };
     },
 
@@ -526,11 +590,11 @@ const CctvView = (() => {
       const pile = [];
       for (let i = 0; i < 12; i++) {                                          // 3줄 x 4단
         const col = i % 3, row = (i / 3) | 0;
-        const b = put(root, box(0.62, 0.5, 0.62), boxMat, -5.2 + col * 0.68 + (row % 2) * 0.06, 0.25 + row * 0.5, -0.7);
+        const b = target(put(root, box(0.62, 0.5, 0.62), boxMat, -5.2 + col * 0.68 + (row % 2) * 0.06, 0.25 + row * 0.5, -0.7));
         b.rotation.y = ((i * 37) % 7 - 3) * 0.03;
         pile.push(b);
       }
-      const d = deer();
+      const d = target(deer());
       d.rotation.y = -Math.PI / 2;                 // 상자 더미(왼쪽)를 보고
       root.add(d);
       const carried = put(d, box(0.5, 0.4, 0.5), boxMat, 0, 1.75, 1.05);      // 입에 문 상자
@@ -599,9 +663,10 @@ const CctvView = (() => {
     lamps.forEach((l) => { l.light.intensity = LAMP; l.mat.color.set(0xfff3c4); });
     setRoomNumbers(floorNo);
     time = 0;
+    targets = []; foundHook = null;
     update = SCENES[key] ? SCENES[key](actors) : null;
     fit();
-    pan.x = pan.target = Math.max(-pan.max, Math.min(pan.max, FOCUS[key] || 0));
+    pan.x = pan.target = (START[key] || 0) * pan.max;
     if (!running) { running = true; last = performance.now(); requestAnimationFrame(loop); }
     render(0);
   }
@@ -655,8 +720,27 @@ const CctvView = (() => {
   const step = (dir) => panTo(pan.target + dir * PAN_STEP);    // +1 오른쪽, -1 왼쪽. 움직였으면 true
   const drag = (dx) => panTo(pan.target + dx);                 // 화면을 끌 때 (복도 단위)
 
+  // 화면 좌표(-1~1)를 눌렀을 때 이상현상(targets)을 맞혔는지. 보이지 않는 것은 못 누른다
+  const raycaster = { r: null };
+  function pick(x, y) {
+    if (!ok || !targets.length) return false;
+    const shown = (o) => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
+    raycaster.r = raycaster.r || new THREE.Raycaster();
+    raycaster.r.setFromCamera({ x, y }, camera);
+    if (raycaster.r.intersectObjects(targets, true).some((h) => shown(h.object))) return true;
+    // 작은 동물도 누르기 쉽게: 물체 중심 근처를 눌러도 맞힌 것으로 본다
+    const v = new THREE.Vector3(), b = new THREE.Box3();
+    return targets.some((o) => {
+      if (!shown(o)) return false;
+      b.setFromObject(o); b.getCenter(v); v.project(camera);
+      return Math.abs(v.x - x) < 0.09 && Math.abs(v.y - y) < 0.14 && v.z < 1;
+    });
+  }
+
   return {
-    init, show, stop, fit, pan: step, drag,
+    init, show, stop, fit, pan: step, drag, pick,
+    found() { if (foundHook) foundHook(); },
+    set onScare(fn) { onScare = fn; },
     get ok() { return ok; },
     get atLeft() { return pan.target <= -pan.max + 0.01; },
     get atRight() { return pan.target >= pan.max - 0.01; },

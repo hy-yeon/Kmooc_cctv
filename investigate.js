@@ -1,6 +1,6 @@
 // ============================================================
 // investigate.js — 조사 흐름 (설계: design/flow-investigator.md)
-//   ① 조사: 책(출입표 · 택배장부)을 열고, 드롭다운으로 렌즈 문장을 골라 표를 거른다
+//   ① 조사: 책(출입표 · 택배장부)을 열고, 드롭다운으로 렌즈 문장을 골라 기록을 필터링한다
 //           아래 고급 모드에서는 pandas 코드를 직접 써서 실행할 수 있다 (advanced.js)
 //   ② 잇기: REPORT 보드의 빈칸을 드롭다운으로 채우고 확인한다 (확인 3회, "2개 이하 틀림" 피드백)
 //   ③ 판정: ✓ 정상 / ✗ 신고 도장. 맞았는지는 바로 알려 주지 않는다 → 두 층 뒤 결과(경고장), 정산서에서 공개
@@ -13,7 +13,8 @@ const Inv = (() => {
   const MAX_CHECKS = 3;          // 보드마다 확인 횟수
   const FIRE_AT = 3;             // 경고장 3장이면 해고
   const RESULT_DELAY = 2;        // 오판의 결과는 두 층 뒤에 돌아온다
-  const NUMERIC = ["출입시", "소리", "나이"];
+  const NUMERIC = ["소리"];                       // 숫자 열
+  const ORDERED = ["출입시간", "배달도착날짜", "배달주문날짜"];   // 순서가 있는 글자 열 (크기 비교 가능)
   const NULL = "비어 있음";      // 드롭다운에서 빈 값(NaN)을 뜻하는 보기
   const VERDICTS = ["설명된다", "설명되지 않는다"];
 
@@ -22,7 +23,7 @@ const Inv = (() => {
 
   const freshNight = () => ({ log: [], warnings: 0, pending: [], fired: false, mystery: null, chart: null });
   const freshBoard = () => ({ board: {}, checksLeft: MAX_CHECKS, checksUsed: 0, feedback: "", solved: false, firstTry: null });
-  const freshFloor = (floor) => Object.assign(freshBoard(), { floor, lenses: [], stamp: null, lensDraft: {} });
+  const freshFloor = (floor) => Object.assign(freshBoard(), { floor, lenses: [], stamp: null, lensDraft: {}, found: false });
 
   // ---------- 받침에 맞는 조사 ----------
   function hasBatchim(word) {
@@ -101,8 +102,11 @@ const Inv = (() => {
       }
       case "stat": {
         if (!L.col) return { kind: "rows", rows, idle: true };
-        const vals = rows.map((r) => r[L.col]).filter((v) => !isNull(v));
-        if ((L.fn === "mean" || L.fn === "sum") && !isNum(L.col)) return { kind: "msg", text: "평균과 합은 숫자 열(출입시 · 소리 · 나이)에서만 구할 수 있어요." };
+        const w = L.where || {};
+        const picked = w.col && w.val !== null && w.val !== undefined ? rows.filter((r) => testCond(r, { col: w.col, op: "eq", val: w.val })) : rows;
+        const vals = picked.map((r) => r[L.col]).filter((v) => !isNull(v));
+        if ((L.fn === "mean" || L.fn === "sum") && !isNum(L.col)) return { kind: "msg", text: "평균과 합은 숫자 열(소리)에서만 구할 수 있어요." };
+        if (!vals.length) return { kind: "msg", text: "조건에 맞는 값이 없어요." };
         let v;
         if (L.fn === "max") v = vals.reduce((a, b) => (isNum(L.col) ? (Number(b) > Number(a) ? b : a) : (b > a ? b : a)));
         if (L.fn === "min") v = vals.reduce((a, b) => (isNum(L.col) ? (Number(b) < Number(a) ? b : a) : (b < a ? b : a)));
@@ -133,13 +137,18 @@ const Inv = (() => {
       case "cmp": {
         const conds = L.conds.filter(condReady);
         const parts = (conds.length ? conds : L.conds).map(condText);
-        return `${T}에서 ${parts.join(L.join === "or" ? " 이거나 " : " 이고 ")} 줄만 보기`;
+        return `${T}에서 ${parts.join(L.join === "or" ? " 이거나 " : " 이고 ")} 내용만 보기`;
       }
       case "unique": return `${T}의 ${L.col}에 어떤 값들이 있는지 모아 보기`;
-      case "null": return `${T}에서 ${L.col}${josa(L.col, "(이)가")} ${L.mode === "null" ? "비어 있는" : "채워진"} 줄만 보기`;
-      case "isin": return `${T}에서 ${L.col}${josa(L.col, "(이)가")} ${L.vals.join(", ")} 중 하나인 줄만 보기`;
+      case "null": return `${T}에서 ${L.col}${josa(L.col, "(이)가")} ${L.mode === "null" ? "비어 있는" : "채워진"} 내용만 보기`;
+      case "isin": return `${T}에서 ${L.col}${josa(L.col, "(이)가")} ${L.vals.join(", ")} 중 하나인 내용만 보기`;
       case "group": return `${T}${josa(T, "(을)를")} ${L.col}별로 묶어서 세기`;
-      case "stat": return `${T}의 ${L.col}에서 ${FN_WORD[L.fn]} 값 찾기`;
+      case "stat": {
+        const w = L.where || {};
+        return w.col && w.val !== null && w.val !== undefined
+          ? `${T}에서 ${w.col}${josa(w.col, "(이)가")} ${w.val}인 내용의 ${L.col}에서 ${FN_WORD[L.fn]} 값 찾기`
+          : `${T}의 ${L.col}에서 ${FN_WORD[L.fn]} 값 찾기`;
+      }
     }
     return "";
   }
@@ -166,7 +175,12 @@ const Inv = (() => {
         return L.col && vals.length ? `${df}[ ${df}['${L.col}'].isin([${vals.map((v) => lit(L.col, v)).join(", ")}]) ]` : df;
       }
       case "group": return L.col ? `${df}.groupby('${L.col}').size()` : df;
-      case "stat": return L.col ? `${df}['${L.col}'].${L.fn}()` : df;
+      case "stat": {
+        if (!L.col) return df;
+        const w = L.where || {};
+        const base = w.col && w.val !== null && w.val !== undefined ? `${df}[ ${condCode(df, { col: w.col, op: "eq", val: w.val })} ]` : df;
+        return `${base}['${L.col}'].${L.fn}()`;
+      }
     }
     return df;
   }
@@ -174,12 +188,13 @@ const Inv = (() => {
   const TYPE_EXPLAIN = {
     cmp: [["df['열'] == 값", "열의 값이 같은지 줄마다 검사해요. 다르면 !=, 크거나 같으면 >=, 작거나 같으면 <= 예요."],
           ["(조건1) & (조건2)", "& 는 '이고', | 는 '이거나'예요. 조건마다 괄호로 묶어요."],
-          ["df[ 검사 ]", "검사를 통과한 줄만 남겨요. 이게 렌즈예요."]],
+          ["df[ 검사 ]", "검사를 통과한 줄만 남겨요. 이게 필터링 조건이예요."]],
     unique: [[".unique()", "같은 값은 한 번만, 어떤 값들이 있는지 목록으로 보여 줘요."]],
     null: [[".isnull() / .notnull()", "칸이 비어 있으면(NaN) 참 / 값이 있으면 참이에요. 빈 줄을 지우는 .dropna()도 있지만, 지우면 단서도 사라져요."]],
     isin: [[".isin([값, 값])", "목록 안에 들어 있는 값이면 참이에요."]],
     group: [[".groupby('열')", "같은 값끼리 묶어요."], [".size()", "묶음마다 줄 수를 세요."]],
-    stat: [[".max() / .min()", "가장 큰 값 / 가장 작은 값이에요. 날짜에서는 가장 최근 / 가장 오래된 날이에요."], [".mean() / .sum()", "평균 / 합이에요. 숫자 열에서 써요."]],
+    stat: [["df[ 조건 ]['열'].min()", "조건에 맞는 줄만 남긴 뒤, 그 열에서 가장 작은 값을 구해요."],
+           [".max() / .min()", "가장 큰 값 / 가장 작은 값이에요. 시각에서는 가장 늦은 / 가장 이른 때예요."], [".mean() / .sum()", "평균 / 합이에요. 숫자 열(소리)에서 써요."]],
   };
 
   // ---------- 표 그리기 (렌즈 결과 · 고급 모드 공용) ----------
@@ -228,13 +243,87 @@ const Inv = (() => {
     return items;
   }
 
+  // ---------- 책 페이지: 동물 증명사진 1장 + 기록 한 줄 = 포스트잇 한 장 ----------
+  const POSTIT = {
+    entry: { main: "출입시간", rest: ["빛감지", "소리"] },
+    delivery: { main: "제품", rest: ["배달도착날짜", "배달주문날짜"] },
+  };
+  // 같은 주민(who)의 줄끼리 한 페이지로. 미등록은 호수별로 한 페이지. 순서는 주민 명부 순, 미등록은 맨 뒤
+  function pagesOf(rows) {
+    const map = new Map();
+    rows.forEach((r) => {
+      const key = r.who || "?" + (r.호수 ?? "");
+      if (!map.has(key)) map.set(key, { who: r.who, first: r, rows: [] });
+      map.get(key).rows.push(r);
+    });
+    const order = (p) => (p.who ? RESIDENTS.findIndex((x) => x.key === p.who) : 999);
+    return [...map.values()].sort((a, b) => order(a) - order(b));
+  }
+
+  // taken: 코르크 보드로 떼어 간 줄(id). 그 자리에는 점선 자국만 남는다
+  function pageEl(table, pg, no, taken) {
+    const spec = POSTIT[table.key];
+    const page = mk("article", "book-page" + (pg.who ? "" : " unknown"));
+    const head = mk("div", "page-head");
+    const photo = mk("div", "id-photo");
+    photo.innerHTML = portraitSvg(pg.first.동물);
+    const info = mk("dl", "page-info");
+    table.columns.filter((c) => c !== spec.main && !spec.rest.includes(c)).forEach((c) => {
+      const v = pg.first[c];
+      info.append(mk("dt", "", c), mk("dd", isNull(v) ? "na" : "", fmt(v)));
+    });
+    head.append(photo, info);
+    const board = mk("div", "postits");
+    pg.rows.forEach((r) => {
+      if (taken && taken.has(r.id)) { board.appendChild(mk("div", "postit taken", "보드로 떼어 감 →")); return; }
+      board.appendChild(postitEl(table, r));
+    });
+    page.append(head, board, mk("span", "page-no", `- ${no} -`));
+    return page;
+  }
+
+  // 기록 한 줄 = 포스트잇 한 장 (책 페이지 · 코르크 보드 공용)
+  function postitEl(table, r) {
+    const spec = POSTIT[table.key];
+    const note = mk("div", "postit");
+    note.appendChild(mk("b", "pi-main" + (isNull(r[spec.main]) ? " na" : ""), fmt(r[spec.main])));
+    spec.rest.forEach((c) => {
+      const v = r[c];
+      const line = mk("p", "pi-line");
+      line.append(mk("span", "pi-k", c), mk("span", "pi-v" + (isNull(v) ? " na" : c === "빛감지" && v === "On" ? " on" : ""), fmt(v)));
+      note.appendChild(line);
+    });
+    return note;
+  }
+
+  // 코르크 보드에 붙는 포스트잇: 압정 + 누구 기록인지 작은 증명사진 스티커
+  function corkNote(table, r, i) {
+    const note = postitEl(table, r);
+    note.classList.add("cork-note");
+    note.style.setProperty("--d", `${Math.min(i, 12) * 0.05}s`);
+    const who = mk("div", "cn-who");
+    const sticker = mk("span", "cn-photo");
+    sticker.innerHTML = portraitSvg(r.동물);
+    who.append(sticker, mk("span", "cn-name" + (isNull(r.동물) ? " na" : ""), `${isNull(r.동물) ? "미등록" : r.동물} · ${isNull(r.호수) ? "호수 없음" : r.호수 + "호"}`));
+    note.prepend(mk("span", "pin"), who);
+    return note;
+  }
+
+  // 코르크 보드에 붙는 결과 메모 (값 모아 보기 · 묶어서 세기 · 가장 큰/작은 값)
+  function corkMemo(title, content) {
+    const memo = mk("div", "postit cork-note memo");
+    memo.append(mk("span", "pin"), mk("b", "pi-main", title), content);
+    return memo;
+  }
+
   function openBook(tableKey) {
     if (!s || s.mysteryMode) return;
+    if (!s.found) return needFind();             // CCTV 에서 이상현상을 먼저 찾아야 한다
     const table = TABLES.find((t) => t.key === tableKey);
     const floor = s.floor;
     const types = LENS_TYPES.filter((t) => t.unlock <= floor);
     const L = s.lensDraft[tableKey] || (s.lensDraft[tableKey] = {
-      type: "cmp", conds: [{ col: null, op: "eq", val: null }], join: "and", col: null, mode: "null", vals: [null, null, null], fn: "max",
+      type: "cmp", conds: [{ col: null, op: "eq", val: null }], join: "and", col: null, mode: "null", vals: [null, null, null], fn: "max", where: { col: null, val: null },
     });
     if (!types.some((t) => t.id === L.type)) L.type = "cmp";
     const logNow = () => { const r = runLens(table, L); if (!r.idle && r.kind !== "msg") logLens(table, L, r); };
@@ -248,10 +337,23 @@ const Inv = (() => {
     lensBox.append(tabs, line);
     const bar = mk("div", "book-bar");
     const count = mk("span", "count-chip");
-    const clear = mk("button", "", "렌즈 지우기"); clear.type = "button";
-    bar.append(count, clear);
-    const box = mk("div", "table-scroll book-scroll");
-    wrap.append(lensBox, bar, box, advancedPanel(table, () => lensCode(table, L)));
+    const clear = mk("button", "", "필터링 지우기"); clear.type = "button";
+    const pager = mk("div", "pager");
+    const prev = mk("button", "pg-btn", "◀"); prev.type = "button"; prev.setAttribute("aria-label", "앞 페이지");
+    const pageNo = mk("span", "pg-no");
+    const next = mk("button", "pg-btn", "▶"); next.type = "button"; next.setAttribute("aria-label", "다음 페이지");
+    pager.append(prev, pageNo, next);
+    bar.append(count, pager, clear);
+    const box = mk("div", "book-spread");
+    const cork = mk("aside", "cork");
+    const corkHead = mk("p", "cork-title", "떼어 붙인 포스트잇");
+    const corkList = mk("div", "cork-list");
+    cork.append(corkHead, corkList);
+    const main = mk("div", "book-main");
+    main.append(box, cork);
+    const pages = pagesOf(table.rows);          // 책은 늘 전체 기록. 필터에 맞는 포스트잇만 보드로 떼어 간다
+    let spread = 0, taken = new Set();
+    wrap.append(lensBox, bar, main, advancedPanel(table, () => lensCode(table, L)));
     m.body.appendChild(wrap);
 
     const txt = (t) => mk("span", "lfix", t);
@@ -264,7 +366,7 @@ const Inv = (() => {
       out.push(c.col ? dropdown(columnValues(table, c.col), c.val, "값 고르기", (v) => { c.val = v; render(true); }, "val")
                      : dropdown([], null, "값 고르기", () => {}, "val"));
       if (!(c.col && isNum(c.col)) && c.val !== NULL) out.push(txt(condReady(c) ? josa(String(c.val), "(과)와") : "와(과)"));
-      const ops = floor >= 7 && c.col && isNum(c.col) ? ["eq", "ne", "ge", "le"] : ["eq", "ne"];
+      const ops = floor >= 7 && c.col && (isNum(c.col) || ORDERED.includes(c.col)) ? ["eq", "ne", "ge", "le"] : ["eq", "ne"];
       if (!ops.includes(c.op)) c.op = "eq";
       if (c.val === NULL) out.push(dropdown([{ value: "eq", label: "비어 있는" }, { value: "ne", label: "채워진" }], c.op, "", (v) => { c.op = v || "eq"; render(true); }, "op"));
       else out.push(dropdown(ops.map((o) => ({ value: o, label: OP_WORD[o] })), c.op, "", (v) => { c.op = v || "eq"; render(true); }, "op"));
@@ -287,7 +389,7 @@ const Inv = (() => {
           line.append(dropdown(joins.map((j) => ({ value: j, label: j === "or" ? "이거나" : "이고" })), L.join, "", (v) => { L.join = v || "and"; render(true); }, "op join"));
           line.append(...condUI(L.conds[1]));
         }
-        line.append(txt("줄만 보기"));
+        line.append(txt("내용만 보기"));
         if (floor >= 2) {
           const b = mk("button", "lens-add", L.conds[1] ? "✕ 조건 빼기" : floor >= 7 ? "+ 조건 잇기 (이고/이거나)" : "+ 조건 잇기 (이고)"); b.type = "button";
           b.addEventListener("click", () => { if (L.conds[1]) L.conds.pop(); else L.conds.push({ col: null, op: "eq", val: null }); render(true); });
@@ -298,7 +400,7 @@ const Inv = (() => {
       } else if (L.type === "null") {
         line.append(txt(`${T}에서`), pickCol(L.col, (v) => { L.col = v; render(true); }), txt(L.col ? josa(L.col, "(이)가") : "이(가)"),
           dropdown([{ value: "null", label: "비어 있는" }, { value: "notnull", label: "채워진" }], L.mode, "", (v) => { L.mode = v || "null"; render(true); }, "op"),
-          txt("줄만 보기"));
+          txt("내용만 보기"));
       } else if (L.type === "isin") {
         line.append(txt(`${T}에서`), pickCol(L.col, (v) => { L.col = v; L.vals = [null, null, null]; render(true); }), txt(L.col ? josa(L.col, "(이)가") : "이(가)"));
         const items = L.col ? columnValues(table, L.col).filter((it) => it.value !== NULL) : [];
@@ -306,44 +408,81 @@ const Inv = (() => {
           if (i > 0) line.append(txt(","));
           line.append(dropdown(items, v, i === 0 ? "값 고르기" : "(더 고르기)", (nv) => { L.vals[i] = nv; render(true); }, "val"));
         });
-        line.append(txt("중 하나인 줄만 보기"));
+        line.append(txt("중 하나인 내용만 보기"));
       } else if (L.type === "group") {
         line.append(txt(`${T}${josa(T, "(을)를")}`), pickCol(L.col, (v) => { L.col = v; render(true); }), txt("별로 묶어서 세기"));
       } else if (L.type === "stat") {
-        line.append(txt(`${T}의`), pickCol(L.col, (v) => { L.col = v; render(true); }), txt("에서"),
+        const w = L.where || (L.where = { col: null, val: null });
+        line.append(txt(`${T}에서`),
+          dropdown(colItems, w.col, "(조건 없이 전체)", (v) => { w.col = v; w.val = null; render(true); }, "col"),
+          txt(w.col ? josa(w.col, "(이)가") : "이(가)"),
+          w.col ? dropdown(columnValues(table, w.col).filter((it) => it.value !== NULL), w.val, "값 고르기", (v) => { w.val = v; render(true); }, "val")
+                : dropdown([], null, "값", () => {}, "val"),
+          txt("인 내용의"), pickCol(L.col, (v) => { L.col = v; render(true); }), txt("에서"),
           dropdown(["max", "min", "mean", "sum"].map((f) => ({ value: f, label: FN_WORD[f] })), L.fn, "", (v) => { L.fn = v || "max"; render(true); }, "op"),
           txt("값 찾기"));
       }
       const res = runLens(table, L);
       drawResult(res);
       clear.disabled = res.idle && !L.col && !L.conds.some((c) => c.col) && !L.vals.some((v) => v !== null);
-      if (flash) { box.classList.remove("flash"); void box.offsetWidth; box.classList.add("flash"); }
+      if (flash) { cork.classList.remove("flash"); void cork.offsetWidth; cork.classList.add("flash"); }
     };
 
-    const drawResult = (res) => {
+    // 왼쪽 책: 전체 기록을 펼친 책 2쪽씩 (떼어 간 포스트잇 자리는 점선)
+    const showSpread = () => {
       box.innerHTML = "";
-      if (res.kind === "rows") {
-        count.textContent = res.idle ? `전체 ${res.rows.length}줄` : `${table.rows.length}줄 → ${res.rows.length}줄`;
-        box.appendChild(rowsTable(table.columns, res.rows));
+      const last = Math.max(0, Math.ceil(pages.length / 2) - 1);
+      spread = Math.min(spread, last);
+      pages.slice(spread * 2, spread * 2 + 2).forEach((pg, i) => box.appendChild(pageEl(table, pg, spread * 2 + i + 1, taken)));
+      pageNo.textContent = `${spread * 2 + 1}–${Math.min(pages.length, spread * 2 + 2)} / ${pages.length}쪽`;
+      prev.disabled = spread === 0;
+      next.disabled = spread >= last;
+      box.scrollTop = 0;
+    };
+    prev.addEventListener("click", () => { spread -= 1; Sfx.click(); showSpread(); });
+    next.addEventListener("click", () => { spread += 1; Sfx.click(); showSpread(); });
+
+    // 오른쪽 코르크 보드: 필터에 맞는 포스트잇(또는 결과 메모)만 한눈에
+    const drawResult = (res) => {
+      corkList.innerHTML = "";
+      taken = new Set();
+      if (res.kind === "rows" && res.idle) {
+        count.textContent = `전체 ${res.rows.length}줄 · ${pages.length}쪽`;
+        corkHead.textContent = "떼어 붙인 포스트잇";
+        corkList.appendChild(mk("p", "cork-empty", "위 문장의 빈칸을 채우면, 조건에 맞는 포스트잇만 책에서 떼어 여기에 붙어요."));
+      } else if (res.kind === "rows") {
+        res.rows.forEach((r) => taken.add(r.id));
+        count.textContent = `${table.rows.length}줄 → ${res.rows.length}줄`;
+        corkHead.textContent = `떼어 붙인 포스트잇 · ${res.rows.length}장`;
+        if (!res.rows.length) corkList.appendChild(mk("p", "cork-empty zero", "붙일 포스트잇이 없어요 (0줄).\n없다는 것도 단서예요."));
+        res.rows.forEach((r, i) => corkList.appendChild(corkNote(table, r, i)));
+        const at = pages.findIndex((pg) => pg.rows.some((r) => taken.has(r.id)));
+        if (at >= 0) spread = Math.floor(at / 2);           // 책은 첫 포스트잇을 떼어 낸 페이지로 넘어간다
       } else if (res.kind === "values") {
         count.textContent = `${res.col}: ${res.values.length}가지`;
-        box.appendChild(chips(res.values));
+        corkHead.textContent = "결과 메모";
+        corkList.appendChild(corkMemo(`${res.col}에 들어 있는 값 · ${res.values.length}가지`, chips(res.values)));
       } else if (res.kind === "series") {
         count.textContent = `${res.items.length}묶음`;
-        box.appendChild(pairTable([res.col, "줄 수"], res.items.map(([k, n]) => [k, `${n}건`])));
+        corkHead.textContent = "결과 메모";
+        corkList.appendChild(corkMemo(`${res.col}별 줄 수`, pairTable([res.col, "줄 수"], res.items.map(([k, n]) => [k, `${n}건`]))));
       } else if (res.kind === "stat") {
         count.textContent = `${res.col}의 ${FN_WORD[res.fn]} 값`;
-        const list = mk("div", "value-list big"); list.appendChild(mk("span", "chip stat", String(res.value))); box.appendChild(list);
+        corkHead.textContent = "결과 메모";
+        const list = mk("div", "value-list big"); list.appendChild(mk("span", "chip stat", String(res.value)));
+        corkList.appendChild(corkMemo(lensSentence(table, L), list));
       } else {
         count.textContent = "결과 없음";
-        box.appendChild(mk("p", "hint", res.text));
+        corkHead.textContent = "결과 메모";
+        corkList.appendChild(corkMemo("결과 없음", mk("p", "memo-text", res.text)));
       }
-      box.scrollTop = 0;
+      corkList.scrollTop = 0;
+      showSpread();
     };
 
     clear.addEventListener("click", () => {
       logNow();
-      Object.assign(L, { conds: [{ col: null, op: "eq", val: null }], join: "and", col: null, mode: "null", vals: [null, null, null], fn: "max" });
+      Object.assign(L, { conds: [{ col: null, op: "eq", val: null }], join: "and", col: null, mode: "null", vals: [null, null, null], fn: "max", where: { col: null, val: null } });
       render(true);
     });
     render();
@@ -359,7 +498,7 @@ const Inv = (() => {
     area.placeholder = `예) ${table.varName}[ ${table.varName}['${table.columns[0]}'] == '...' ]`;
     const btns = mk("div", "cmd-buttons");
     const run = mk("button", "primary", "실행 (Ctrl+Enter)"); run.type = "button";
-    const fill = mk("button", "", "지금 렌즈를 코드로"); fill.type = "button";
+    const fill = mk("button", "", "필터링를 코드로"); fill.type = "button";
     btns.append(run, fill);
     const out = mk("div", "adv-out");
     d.append(mk("p", "hint", "쓸 수 있는 표: df_entry (출입표), df_delivery (택배장부). 여러 줄도 되고, a = ... 처럼 이름을 붙일 수도 있어요."), area, btns, out);
@@ -398,7 +537,7 @@ const Inv = (() => {
   }
 
   function logLens(table, L, res) {
-    const snap = JSON.parse(JSON.stringify({ type: L.type, conds: L.conds.filter(condReady), join: L.join, col: L.col, mode: L.mode, vals: L.vals.filter((v) => v !== null), fn: L.fn }));
+    const snap = JSON.parse(JSON.stringify({ type: L.type, conds: L.conds.filter(condReady), join: L.join, col: L.col, mode: L.mode, vals: L.vals.filter((v) => v !== null), fn: L.fn, where: L.where }));
     snap.table = table.key;
     const key = lensCode(table, snap);
     if (s.lenses.some((l) => l.key === key)) return;
@@ -469,11 +608,12 @@ const Inv = (() => {
       if (opts.stamps) {
         const rep = mk("button", "stamp-btn bad", "신고"); rep.type = "button";
         const ok = mk("button", "stamp-btn ok", "정상"); ok.type = "button";
-        rep.disabled = ok.disabled = !!st.stamp;
+        rep.disabled = ok.disabled = !!st.stamp || !all;          // 빈칸을 모두 채워야 판정할 수 있다
         rep.addEventListener("click", () => stamp("report"));
         ok.addEventListener("click", () => stamp("next"));
-        right.append(rep, ok);
         if (st.stamp) right.appendChild(mk("span", "stamped", st.stamp === "report" ? "✗ 신고함" : "✓ 정상 처리함"));
+        else if (!all) right.appendChild(mk("span", "stamp-wait", "빈칸을 모두 채우면 누를 수 있어요"));
+        right.append(rep, ok);
       } else if (opts.onSolvedClose && (st.solved || st.checksLeft === 0)) {
         const go = mk("button", "primary", st.solved ? "진실을 확인하기 ▶" : "결론 없이 보고서 제출 ▶"); go.type = "button";
         go.addEventListener("click", () => { closeModal(); opts.onSolvedClose(st.solved); });
@@ -505,6 +645,7 @@ const Inv = (() => {
   function openBoard() {
     if (!s) return;
     if (s.mysteryMode) return openMysteryBoard();     // 미스터리 보드를 닫았다가 다시 열 때
+    if (!s.found) return needFind();
     const bd = BOARDS[s.floor];
     openBoardModal(bd, s, `REPORT 보드 · ${bd.title}`, { options: BOARD_OPTIONS[s.floor] || {}, stamps: true });
   }
@@ -531,45 +672,99 @@ const Inv = (() => {
     box.innerHTML = "";
     box.appendChild(mk("h4", "", "TIP"));
     const ul = mk("ul");
-    ["책을 열어 기록을 걸러 보세요.", tool ? `새 도구: ${tool.name}` : null, "REPORT 보드를 채우고 ✓ / ✗ 를 누르세요."]
+    ["CCTV를 둘러보고 이상한 것을 눌러요.", "책을 열어 기록을 필터링하여 보세요.", tool ? `새 도구: ${tool.name}` : null, "REPORT 보드를 다 채우고 정상 / 신고를 고르세요."]
       .filter(Boolean).forEach((t) => ul.appendChild(mk("li", "", t)));
     box.appendChild(ul);
   }
 
-  function openRules(notice, onClose) {
-    const f = currentFloor();
-    const m = openModal({ title: notice ? `관리소 공지 · ${f.floor}층${f.place ? " " + f.place : ""} 근무` : "아파트 수칙", cls: "paper", onClose });
-    if (notice) m.body.appendChild(mk("p", "paper-note", f.floor === 1
-      ? "오늘 밤 이 층의 수칙과 조사 도구예요. 게임은 질문하지 않아요. 무엇을 볼지는 당신이 정해요."
-      : "새 수칙과 새 조사 도구가 생겼어요. 앞에서 쓴 도구도 계속 쓸 수 있어요."));
-    const ol = mk("ol", "rule-list");
-    rulesFor(f.floor).forEach((r) => ol.appendChild(mk("li", r.floor === f.floor ? "new" : "", r.text)));
-    m.body.appendChild(ol);
-    const tool = FLOOR_TOOL[f.floor];
-    if (notice && tool) {
-      const u = mk("div", "unlock");
-      u.appendChild(mk("b", "", `새 렌즈: ${tool.name}`));
-      u.appendChild(mk("p", "", tool.sentence));
-      m.body.appendChild(u);
-    }
-    if (notice && f.floor === 1) {
-      const how = mk("ol", "howto");
-      ["◀ ▶ 로 CCTV 복도를 좌우로 둘러보며 이상한 것을 찾아요.",
-       "책(출입표 · 택배장부)을 열고, 문장의 빈칸을 드롭다운으로 골라 표를 걸러 봐요.",
-       "REPORT 보드의 빈칸을 드롭다운으로 채우고 확인해요. (확인은 층마다 3번)",
-       "✓ 정상 / ✗ 신고 를 눌러요. 맞았는지는 바로 알려 주지 않아요. 틀린 판단은 나중에 돌아와요."].forEach((t) => how.appendChild(mk("li", "", t)));
-      m.body.appendChild(how);
-    }
+  // ---------- 근무 안내 (1층 시작 전 한 번만): 그림 5장으로 설명 ----------
+  const GUIDE = [
+    { title: "CCTV를 본다", sub: "◀ ▶ 로 둘러보고 숨은 이상한 것을 눌러요", svg: `
+      <rect x="22" y="8" width="116" height="74" rx="6" fill="#2b2f38" stroke="#14161b" stroke-width="3"/>
+      <rect x="30" y="15" width="100" height="58" fill="#3d4740"/>
+      <rect x="30" y="52" width="100" height="21" fill="#26302e"/>
+      <rect x="72" y="27" width="16" height="27" fill="#6b4a36" stroke="#14161b" stroke-width="1.5"/>
+      <rect x="40" y="30" width="16" height="11" fill="#0b1622"/><rect x="104" y="30" width="16" height="11" fill="#0b1622"/>
+      <ellipse cx="50" cy="60" rx="7" ry="5" fill="#d9a066"/><ellipse cx="62" cy="64" rx="7" ry="5" fill="#e6c79a"/><ellipse cx="100" cy="62" rx="7" ry="5" fill="#c68642"/>
+      <circle cx="36" cy="20" r="2.5" fill="#f55"/>
+      <rect x="44" y="88" width="26" height="18" rx="3" fill="#2b2f38" stroke="#14161b" stroke-width="2"/><path d="M61 92 L53 97 L61 102 Z" fill="#fff"/>
+      <rect x="90" y="88" width="26" height="18" rx="3" fill="#2b2f38" stroke="#14161b" stroke-width="2"/><path d="M99 92 L107 97 L99 102 Z" fill="#fff"/>` },
+    { title: "장부를 확인한다", sub: "출입표 · 택배장부를 열어요", svg: `
+      <rect x="18" y="22" width="22" height="72" rx="2" fill="#2f7f86" stroke="#14161b" stroke-width="2.5"/>
+      <text x="29" y="44" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">출</text><text x="29" y="56" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">입</text><text x="29" y="68" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">표</text>
+      <rect x="43" y="16" width="22" height="78" rx="2" fill="#a8452f" stroke="#14161b" stroke-width="2.5"/>
+      <text x="54" y="38" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">택</text><text x="54" y="50" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">배</text><text x="54" y="62" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">장</text><text x="54" y="74" text-anchor="middle" font-size="9" font-weight="800" fill="#fff">부</text>
+      <rect x="10" y="94" width="64" height="6" fill="#8a6a46"/>
+      <path d="M84 30 L116 24 L148 30 L148 92 L116 86 L84 92 Z" fill="#efe6c8" stroke="#14161b" stroke-width="2.5"/><path d="M116 24 L116 86" stroke="#14161b" stroke-width="2"/>
+      <path d="M90 42 H110 M90 52 H110 M90 62 H110 M90 72 H106 M122 42 H142 M122 52 H142 M122 62 H142 M122 72 H138" stroke="#8a7a55" stroke-width="3"/>
+      <path d="M70 56 H80" stroke="#fd6" stroke-width="3"/><path d="M78 50 L84 56 L78 62" fill="none" stroke="#fd6" stroke-width="3"/>` },
+    { title: "빈칸을 채워 필터링한다", sub: "드롭다운으로 골라 표를 줄여요", svg: `
+      <rect x="8" y="8" width="144" height="22" rx="4" fill="#15171f"/>
+      <rect x="14" y="12" width="56" height="14" rx="3" fill="#fd6"/><text x="38" y="23" text-anchor="middle" font-size="8.5" font-weight="800" fill="#15171f">동물</text><path d="M62 17 L66 17 L64 20 Z" fill="#15171f"/>
+      <rect x="76" y="12" width="48" height="14" rx="3" fill="#fd6"/><text x="96" y="23" text-anchor="middle" font-size="8.5" font-weight="800" fill="#15171f">햄스터</text><path d="M116 17 L120 17 L118 20 Z" fill="#15171f"/>
+      <text x="138" y="23" text-anchor="middle" font-size="8" fill="#cfd">보기</text>
+      <path d="M58 36 L102 36 L86 54 L86 66 L74 72 L74 54 Z" fill="#8fd" stroke="#14161b" stroke-width="2"/>
+      <rect x="24" y="76" width="112" height="28" fill="#1e2230" stroke="#3a3e50" stroke-width="1.5"/>
+      <rect x="24" y="76" width="112" height="9" fill="#2d3142"/>
+      <rect x="26" y="87" width="108" height="7" fill="#4a4420"/><rect x="26" y="96" width="108" height="7" fill="#4a4420"/>` },
+    { title: "장부와 CCTV를 비교한다", sub: "기록과 영상이 맞나요?", svg: `
+      <rect x="6" y="20" width="62" height="46" rx="4" fill="#2b2f38" stroke="#14161b" stroke-width="2.5"/>
+      <rect x="11" y="25" width="52" height="36" fill="#3d4740"/><rect x="11" y="49" width="52" height="12" fill="#26302e"/>
+      <ellipse cx="20" cy="54" rx="5" ry="3.5" fill="#d9a066"/><ellipse cx="31" cy="57" rx="5" ry="3.5" fill="#e6c79a"/><ellipse cx="42" cy="53" rx="5" ry="3.5" fill="#c68642"/><ellipse cx="53" cy="57" rx="5" ry="3.5" fill="#d9a066"/>
+      <text x="37" y="80" text-anchor="middle" font-size="9" font-weight="800" fill="#cfd">햄스터 9마리</text>
+      <rect x="92" y="20" width="62" height="46" rx="2" fill="#efe6c8" stroke="#14161b" stroke-width="2.5"/>
+      <path d="M98 30 H148" stroke="#8a7a55" stroke-width="2"/>
+      <rect x="98" y="35" width="50" height="7" fill="#f6d36b"/><rect x="98" y="45" width="50" height="7" fill="#f6d36b"/>
+      <path d="M98 57 H148" stroke="#c9bd99" stroke-width="2"/>
+      <text x="123" y="80" text-anchor="middle" font-size="9" font-weight="800" fill="#cfd">기록 2줄</text>
+      <circle cx="80" cy="43" r="11" fill="#e5484d" stroke="#14161b" stroke-width="2"/><text x="80" y="48" text-anchor="middle" font-size="15" font-weight="900" fill="#fff">≠</text>
+      <text x="80" y="102" text-anchor="middle" font-size="9" fill="#d8c9a0">영상 = 기록 ?</text>` },
+    { title: "정답을 맞춘다", sub: "보드를 채우고 정상 / 신고", svg: `
+      <rect x="30" y="6" width="100" height="98" rx="6" fill="#3a3f48" stroke="#14161b" stroke-width="3"/>
+      <rect x="38" y="13" width="84" height="44" rx="2" fill="#102a1e" stroke="#14161b" stroke-width="2"/>
+      <text x="80" y="31" text-anchor="middle" font-size="10" font-weight="800" fill="#8fe3a8" font-family="monospace">REPORT</text>
+      <rect x="46" y="38" width="30" height="9" rx="2" fill="#e07a7a"/><rect x="80" y="38" width="34" height="9" rx="2" fill="#b48ae0"/>
+      <circle cx="58" cy="78" r="13" fill="#2f9e5f" stroke="#14161b" stroke-width="3"/><path d="M52 78 L57 83 L65 72" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
+      <circle cx="102" cy="78" r="13" fill="#cf3d3d" stroke="#14161b" stroke-width="3"/><path d="M97 73 L107 83 M107 73 L97 83" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/>
+      <circle cx="122" cy="12" r="12" fill="#fd6" stroke="#14161b" stroke-width="2"/><text x="122" y="17" text-anchor="middle" font-size="13" font-weight="900" fill="#14161b">!</text>` },
+  ];
+
+  function openGuide(onClose) {
+    const m = openModal({ title: "근무 안내 · 이렇게 순찰해요", cls: "guide", onClose });
+    const row = mk("ol", "guide-steps");
+    GUIDE.forEach((g, i) => {
+      const li = mk("li", "guide-step");
+      const fig = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      fig.setAttribute("viewBox", "0 0 160 110");
+      fig.setAttribute("role", "img");
+      fig.setAttribute("aria-label", g.title);
+      fig.innerHTML = g.svg;
+      li.append(mk("span", "guide-num", String(i + 1)), fig, mk("b", "", g.title), mk("span", "guide-sub", g.sub));
+      row.appendChild(li);
+    });
+    m.body.appendChild(row);
+    m.body.appendChild(mk("p", "guide-note", "맞았는지는 바로 알려 주지 않아요. 틀린 판단은 두 층 뒤에 경고장으로 돌아와요. (3장이면 해고)"));
     const a = mk("div", "check-actions");
-    const ok = mk("button", "primary", notice ? "근무 시작" : "닫기"); ok.type = "button";
+    const ok = mk("button", "primary big", "근무 시작 ▶"); ok.type = "button";
     ok.addEventListener("click", () => closeModal());
     a.appendChild(ok);
     m.body.appendChild(a);
+    ok.focus();
   }
 
   // ---------- 판정 도장 ----------
+  const boardFilled = () => Object.keys(BOARDS[s.floor].blanks).every((id) => s.board[id]);
+
+  // 책상의 ✓ / ✗ : 먼저 REPORT 보드를 연다 (판정은 보드를 다 채운 뒤 보드 안의 버튼으로)
+  function verdict() {
+    if (!s || s.stamp || s.mysteryMode) return;
+    if (!s.found) return needFind();
+    openBoard();
+  }
+
   function stamp(choice) {
     if (!s || s.stamp || s.mysteryMode) return;
+    if (!boardFilled()) return openBoard();
     const m = openModal({ title: "판정 도장", cls: "paper" });
     m.body.appendChild(mk("p", "choice-banner " + (choice === "report" ? "bad" : "ok"),
       choice === "report" ? "✗ 신고 — 기록으로 설명되지 않는다" : "✓ 정상 — 기록으로 설명된다"));
@@ -658,17 +853,17 @@ const Inv = (() => {
 
   function openLesson(f, next, label) {
     const m = openModal({ title: `오늘의 코드 풀이 · ${f.floor}층`, cls: "lesson" });
-    m.body.appendChild(mk("p", "lesson-intro", "당신이 고른 렌즈 문장은 사실 pandas 코드였어요. 말과 코드를 한 줄씩 짝지어 읽어 보세요. 책의 고급 모드에 그대로 써서 실행해 볼 수도 있어요."));
+    m.body.appendChild(mk("p", "lesson-intro", "당신이 고른 필터링 문장은 사실 pandas 코드였어요. 말과 코드를 한 줄씩 짝지어 읽어 보세요. 책의 고급 모드에 그대로 써서 실행해 볼 수도 있어요."));
     const tbl = (k) => TABLES.find((t) => t.key === k);
     if (s.lenses.length) {
-      s.lenses.slice(-6).forEach((l) => m.body.appendChild(lessonStep(tbl(l.table), l, `내가 쓴 렌즈 · 결과 ${l.result}`)));
-      if (s.lenses.length > 6) m.body.appendChild(mk("p", "hint", `(앞의 렌즈 ${s.lenses.length - 6}개는 생략했어요)`));
+      s.lenses.slice(-6).forEach((l) => m.body.appendChild(lessonStep(tbl(l.table), l, `내가 쓴 필터링 · 결과 ${l.result}`)));
+      if (s.lenses.length > 6) m.body.appendChild(mk("p", "hint", `(앞의 필터링 ${s.lenses.length - 6}개는 생략했어요)`));
     } else {
-      m.body.appendChild(mk("p", "hint", "이번 층에서는 렌즈를 쓰지 않았어요. 정석 렌즈를 보여 드릴게요."));
+      m.body.appendChild(mk("p", "hint", "이번 층에서는 필터링를 쓰지 않았어요. 정석 데이터 처리 방식를 보여 드릴게요."));
     }
     const canon = BOARDS[f.floor].canonical || [];
     const used = new Set(s.lenses.map((l) => l.key));
-    canon.filter((c) => !used.has(lensCode(tbl(c.table), c))).forEach((c) => m.body.appendChild(lessonStep(tbl(c.table), c, "정석 렌즈 (이렇게도 볼 수 있어요)")));
+    canon.filter((c) => !used.has(lensCode(tbl(c.table), c))).forEach((c) => m.body.appendChild(lessonStep(tbl(c.table), c, "정석 필터링 (이렇게도 볼 수 있어요)")));
     const tool = FLOOR_TOOL[f.floor];
     const typeOf = { 1: "cmp", 2: "cmp", 3: "unique", 4: "null", 5: "isin", 6: "group", 7: "cmp", 8: "stat" }[f.floor];
     const ex = mk("section", "lesson-step");
@@ -770,24 +965,22 @@ const Inv = (() => {
     m.body.appendChild(mk("p", "choice-banner " + (grade === "진실" ? "ok" : "bad"), head));
     const t = mk("table", "summary-table");
     const trh = mk("tr");
-    ["층", "이상현상", "내 판정", "실제", "보드 첫 확인", "쓴 렌즈", "결과"].forEach((h) => trh.appendChild(mk("th", "", h)));
+    ["층", "이상현상", "내 판정", "실제"].forEach((h) => trh.appendChild(mk("th", "", h)));
     t.appendChild(trh);
     const lab = (v) => (v === "report" ? "✗ 신고" : v === "next" ? "✓ 정상" : "-");
     night.log.forEach((r) => {
       const right = r.stamp === r.answer;
       const tr = mk("tr", right ? "" : "wrong");
-      [`${r.floor}층`, r.anomaly, lab(r.stamp), lab(r.answer), r.firstTry ? "모두 맞음" : r.solved ? "고쳐서 맞음" : "못 맞힘", `${r.lenses}개`,
-        right ? "없음" : r.answer === "report" ? "괴현상 번짐" : "주민 민원"].forEach((v) => tr.appendChild(mk("td", "", v)));
+      [`${r.floor}층`, r.anomaly, lab(r.stamp), lab(r.answer)].forEach((v) => tr.appendChild(mk("td", "", v)));
       t.appendChild(tr);
     });
     m.body.appendChild(t);
     const right = night.log.filter((r) => r.stamp === r.answer).length;
-    const firsts = night.log.filter((r) => r.firstTry).length;
-    m.body.appendChild(mk("p", "paper-note", `판정 정답 ${right} / ${night.log.length} · 보드 첫 확인 모두 맞음 ${firsts}층 · 경고장 ${night.warnings}장 · 큰 미스터리 ${night.mystery && night.mystery.solved ? "해결" : "미해결"}`));
+    m.body.appendChild(mk("p", "paper-note", `판정 정답 ${right} / ${night.log.length} · 경고장 ${night.warnings}장 · 큰 미스터리 ${night.mystery && night.mystery.solved ? "해결" : "미해결"}`));
     const c = typeof COURSE === "object" && COURSE ? COURSE : {};
     const course = mk("div", "course");
     course.appendChild(mk("h2", "", "오늘 밤 당신이 한 일이 바로 EDA예요"));
-    course.appendChild(mk("p", "", `값 모아 보기(unique), 거르기(조건 · isin), 빈 칸 찾기(결측치), 묶어서 세기(groupby), 가장 큰 값(통계), 그리고 그래프까지. 렌즈 문장은 모두 진짜 pandas 코드였어요. ${c.name ? `중앙대학교 K-MOOC 「${c.name}」` : "중앙대학교 K-MOOC 강좌"}에서 직접 써 보세요.` + (c.blurb ? " " + c.blurb : "")));
+    course.appendChild(mk("p", "", `값 모아 보기(unique), 거르기(조건 · isin), 빈 칸 찾기(결측치), 묶어서 세기(groupby), 가장 큰 값(통계), 그리고 그래프까지. 필터링 문장은 모두 진짜 pandas 코드였어요. ${c.name ? `중앙대학교 K-MOOC 「${c.name}」` : "중앙대학교 K-MOOC 강좌"}에서 직접 써 보세요.` + (c.blurb ? " " + c.blurb : "")));
     const link = mk("a", "course-link", c.name ? `「${c.name}」 강좌 보러 가기 ↗` : "K-MOOC 에서 강좌 찾아보기 ↗");
     link.href = c.url || "https://www.kmooc.kr"; link.target = "_blank"; link.rel = "noopener";
     course.appendChild(link);
@@ -823,8 +1016,10 @@ const Inv = (() => {
     renderTip();
     renderWarnings();
     updateDesk();
-    runEvents(f.floor, () => { if (!night.fired) openRules(true); });
+    runEvents(f.floor, () => { if (!night.fired && f.floor === 1) openGuide(); });   // 안내는 1층 시작 전에 한 번만
   }
 
-  return { startFloor, openBook, openBoard, stamp, finishFloor, get state() { return s; }, get night() { return night; } };
+  function setFound() { if (s && !s.mysteryMode) s.found = true; }
+
+  return { startFloor, setFound, openBook, openBoard, verdict, stamp, finishFloor, get state() { return s; }, get night() { return night; } };
 })();

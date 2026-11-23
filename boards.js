@@ -31,12 +31,12 @@ const RULES = [
   { floor: 5, text: "수칙 5. 빛감지 On은 빛을 내거나 가린 무언가가 지나갔다는 뜻이다." },
   { floor: 6, text: "수칙 6. 층마다 방은 3개(6층은 601~603호)뿐이다." },
   { floor: 7, text: "수칙 7. 출입 기록이 있으면 영상에 누군가 보여야 한다." },
-  { floor: 8, text: "수칙 8. 새로 이사 온 주민은 아직 낯설 수 있다. 입주 날짜를 확인하라." },
+  { floor: 8, text: "수칙 8. 새로 이사 온 주민은 아직 낯설 수 있다. 그 주민의 첫 출입 날짜를 확인하라." },
 ];
 
 // 렌즈 틀 (화면에는 말로만 보인다. 코드는 층이 끝난 뒤 풀이 창에서)
 const LENS_TYPES = [
-  { id: "cmp",    unlock: 1, tab: "같은/다른 줄 보기" },
+  { id: "cmp",    unlock: 1, tab: "같은/다른 내용 보기" },
   { id: "unique", unlock: 3, tab: "어떤 값들이 있나" },
   { id: "null",   unlock: 4, tab: "빈 칸 찾기" },
   { id: "isin",   unlock: 5, tab: "목록 중 하나" },
@@ -45,14 +45,14 @@ const LENS_TYPES = [
 ];
 
 const FLOOR_TOOL = {
-  1: { name: "같은/다른 줄만 보기", sentence: "[표]에서 [열]이 [값]과 [같은/다른] 줄만 보기", concept: "조건 필터 (==, !=)" },
-  2: { name: "조건 두 개 잇기 (이고)", sentence: "… 줄 중에서 [이고] [열]이 [값]과 같은 줄만 보기", concept: "이중 조건 (&)" },
+  1: { name: "같은/다른 내용만 보기", sentence: "[표]에서 [열]이 [값]과 [같은/다른] 내용만 보기", concept: "조건 필터 (==, !=)" },
+  2: { name: "조건 두 개 잇기 (이고)", sentence: "… 내용 중에서 [이고] [열]이 [값]과 같은 내용만 보기", concept: "이중 조건 (&)" },
   3: { name: "어떤 값들이 있나 모아 보기", sentence: "[표]의 [열]에 어떤 값들이 있는지 모아 보기", concept: "unique" },
-  4: { name: "빈 칸 찾기", sentence: "[표]에서 [열]이 [비어 있는/채워진] 줄만 보기", concept: "결측치 (isnull, notnull)" },
-  5: { name: "목록 중 하나인 줄 보기", sentence: "[표]에서 [열]이 [값, 값, 값] 중 하나인 줄만 보기", concept: "isin" },
+  4: { name: "빈 칸 찾기", sentence: "[표]에서 [열]이 [비어 있는/채워진] 내용만 보기", concept: "결측치 (isnull, notnull)" },
+  5: { name: "목록 중 하나인 내용 보기", sentence: "[표]에서 [열]이 [값, 값, 값] 중 하나인 내용만 보기", concept: "isin" },
   6: { name: "묶어서 세기", sentence: "[표]를 [열]별로 묶어서 세기", concept: "groupby + size" },
-  7: { name: "이거나 · 크거나 같은/작거나 같은", sentence: "[열]이 [값]보다 크거나 같은 [이거나] [열]이 [값]보다 작거나 같은 줄", concept: "이중 조건 (|), 크기 비교 (>=, <=)" },
-  8: { name: "가장 큰/작은 값 찾기", sentence: "[표]의 [열]에서 [가장 큰/가장 작은/평균/합] 값 찾기", concept: "통계 (max, min, mean, sum)" },
+  7: { name: "이거나 · 크거나 같은/작거나 같은", sentence: "[열]이 [값]보다 크거나 같은 [이거나] … 내용만 보기 (시각 · 소리처럼 순서가 있는 열)", concept: "크기 비교 (>=, <=), 이중 조건 (|)" },
+  8: { name: "가장 큰/작은 값 찾기", sentence: "[표]에서 [열]이 [값]인 내용의 [열]에서 [가장 큰/가장 작은/평균/합] 값 찾기", concept: "조건 + 통계 (max, min, mean, sum)" },
 };
 
 const BOARDS = {
@@ -69,22 +69,22 @@ const BOARDS = {
       n: { cat: "howmany", answer: "6마리 이상" }, n2: { cat: "howmany", answer: "6마리 이상" },
       c: { cat: "howmany", answer: "2줄" }, t2: { cat: "when", answer: "23:12" }, v: { cat: "verdict", answer: "설명되지 않는다" },
     },
-    canonical: [{ type: "cmp", table: "entry", conds: [{ col: "동물종류", op: "eq", val: "햄스터" }], join: "and" }],
+    canonical: [{ type: "cmp", table: "entry", conds: [{ col: "동물", op: "eq", val: "햄스터" }], join: "and" }],
   },
   2: {
     title: "2층 · 뒤로 걷는 게코도마뱀",
     sentences: [
       { tag: "영상", text: "{t}에 {r} 앞에서 {w}(이)가 {s}." },
-      { tag: "가설", text: "매일 하는 운동 습관이라면, 같은 시각의 출입이 여러 날 {n} 있어야 한다." },
-      { tag: "증거", text: "게코도마뱀의 출입은 모두 {h}쯤이고, 운동 칸은 {y}이다." },
+      { tag: "가설", text: "매일 하는 문워크 연습이라면, 같은 시각의 조용한 출입이 여러 날 {n} 있어야 한다." },
+      { tag: "증거", text: "게코도마뱀의 출입은 모두 {h}쯤이고, 소리는 늘 {y}(으)로 조용하다." },
       { tag: "결론", text: "그러므로 뒤로 걷는 게코도마뱀은 기록으로 {v}." },
     ],
     blanks: {
       t: { cat: "when", answer: "22:00" }, r: { cat: "where", answer: "202호" }, w: { cat: "who", answer: "게코도마뱀" },
-      s: { cat: "state", answer: "뒤로 걸음" }, n: { cat: "howmany", answer: "5줄" }, h: { cat: "when", answer: "22시" },
-      y: { cat: "state", answer: "Y" }, v: { cat: "verdict", answer: "설명된다" },
+      s: { cat: "state", answer: "뒤로 걸음" }, n: { cat: "howmany", answer: "3줄" }, h: { cat: "when", answer: "22시" },
+      y: { cat: "howmany", answer: "소리 1" }, v: { cat: "verdict", answer: "설명된다" },
     },
-    canonical: [{ type: "cmp", table: "entry", conds: [{ col: "동물종류", op: "eq", val: "게코도마뱀" }, { col: "운동", op: "eq", val: "Y" }], join: "and" }],
+    canonical: [{ type: "cmp", table: "entry", conds: [{ col: "동물", op: "eq", val: "게코도마뱀" }, { col: "소리", op: "eq", val: "1" }], join: "and" }],
   },
   3: {
     title: "3층 · 네모가 된 고양이",
@@ -99,14 +99,14 @@ const BOARDS = {
       o: { cat: "what", answer: "정육면체" }, r2: { cat: "where", answer: "302호" }, x: { cat: "what", answer: "정육면체 유리 상자 (택배)" },
       d: { cat: "when", answer: "20:05" }, t2: { cat: "when", answer: "20:20" }, v: { cat: "verdict", answer: "설명된다" },
     },
-    canonical: [{ type: "unique", table: "delivery", col: "배달제품" }, { type: "cmp", table: "delivery", conds: [{ col: "배달제품", op: "eq", val: "정육면체 유리 상자 (택배)" }], join: "and" }],
+    canonical: [{ type: "unique", table: "delivery", col: "제품" }, { type: "cmp", table: "delivery", conds: [{ col: "제품", op: "eq", val: "정육면체 유리 상자 (택배)" }], join: "and" }],
   },
   4: {
     title: "4층 · 꿀 먹는 곰",
     sentences: [
       { tag: "영상", text: "{t}에 4층 복도에서 {w}(이)가 {x}(을)를 먹고 있었다." },
-      { tag: "가설", text: "곰이 주민이라면, 출입표에 동물종류가 {w2}인 줄이 있어야 한다." },
-      { tag: "증거", text: "동물종류가 곰인 줄은 {c}이고, 주민 정보가 {e} 출입이 {t2}에 있었다. 그때 소리는 {s}였다." },
+      { tag: "가설", text: "곰이 주민이라면, 출입표에 동물이 {w2}인 줄이 있어야 한다." },
+      { tag: "증거", text: "동물이 곰인 줄은 {c}이고, 주민 정보가 {e} 출입이 {t2}에 있었다. 그때 소리는 {s}였다." },
       { tag: "결론", text: "그러므로 곰은 기록으로 {v}." },
     ],
     blanks: {
@@ -114,7 +114,7 @@ const BOARDS = {
       w2: { cat: "who", answer: "곰" }, c: { cat: "howmany", answer: "0줄" }, e: { cat: "state", answer: "비어 있음" },
       t2: { cat: "when", answer: "00:40" }, s: { cat: "howmany", answer: "소리 9" }, v: { cat: "verdict", answer: "설명되지 않는다" },
     },
-    canonical: [{ type: "cmp", table: "entry", conds: [{ col: "동물종류", op: "eq", val: "곰" }], join: "and" }, { type: "null", table: "entry", col: "동물종류", mode: "null" }],
+    canonical: [{ type: "cmp", table: "entry", conds: [{ col: "동물", op: "eq", val: "곰" }], join: "and" }, { type: "null", table: "entry", col: "동물", mode: "null" }],
   },
   5: {
     title: "5층 · 빛나는 고슴도치",
@@ -130,7 +130,7 @@ const BOARDS = {
       x: { cat: "what", answer: "야광 페인트 (형광 초록) 3통" }, t2: { cat: "when", answer: "21:00" }, on: { cat: "state", answer: "On" },
       v: { cat: "verdict", answer: "설명된다" },
     },
-    canonical: [{ type: "isin", table: "delivery", col: "호수", vals: ["501호", "502호", "503호"] }],
+    canonical: [{ type: "isin", table: "delivery", col: "호수", vals: ["501", "502", "503"] }],
   },
   6: {
     title: "6층 · 작은 문으로 들어간 코알라",
@@ -160,29 +160,29 @@ const BOARDS = {
       t2: { cat: "when", answer: "01:30" }, r: { cat: "where", answer: "702호" }, w2: { cat: "who", answer: "카피바라" },
       on: { cat: "state", answer: "On" }, v: { cat: "verdict", answer: "설명되지 않는다" },
     },
-    canonical: [{ type: "cmp", table: "entry", conds: [{ col: "출입시", op: "ge", val: "23" }, { col: "출입시", op: "le", val: "3" }], join: "or" }],
+    canonical: [{ type: "cmp", table: "entry", conds: [{ col: "출입시간", op: "ge", val: "11-09 00:00" }, { col: "빛감지", op: "eq", val: "On" }], join: "and" }],
   },
   8: {
     title: "8층 · 상자를 쌓는 낯선 사슴",
     sentences: [
       { tag: "영상", text: "{t}에 택배 보관실에서 처음 보는 {w}(이)가 {x}(을)를 쌓고 있었다." },
-      { tag: "가설", text: "새로 이사 온 주민이라면, 가장 최근 입주날짜 {d}의 주인이어야 한다." },
-      { tag: "증거", text: "{d2}에 입주한 주민은 {r}의 사슴이고, 같은 날 {t2}에 {item}(이)가 배달됐다." },
+      { tag: "가설", text: "새로 이사 온 주민이라면, 첫 출입은 이삿짐이 도착한 {d} 이후여야 한다." },
+      { tag: "증거", text: "사슴의 가장 이른 출입은 {d2}이고, {r}(으)로 온 {item}(은)는 그날 {t2}에 도착했다." },
       { tag: "결론", text: "그러므로 낯선 사슴은 기록으로 {v}." },
     ],
     blanks: {
       t: { cat: "when", answer: "18:14" }, w: { cat: "who", answer: "사슴" }, x: { cat: "what", answer: "상자 더미" },
-      d: { cat: "when", answer: "2026-11-07" }, d2: { cat: "when", answer: "2026-11-07" }, r: { cat: "where", answer: "403호" },
+      d: { cat: "when", answer: "11-07" }, d2: { cat: "when", answer: "11-07 18:17" }, r: { cat: "where", answer: "403호" },
       t2: { cat: "when", answer: "15:00" }, item: { cat: "what", answer: "이삿짐 상자 12개" }, v: { cat: "verdict", answer: "설명된다" },
     },
-    canonical: [{ type: "stat", table: "entry", col: "입주날짜", fn: "max" }],
+    canonical: [{ type: "stat", table: "entry", col: "출입시간", fn: "min", where: { col: "동물", val: "사슴" } }, { type: "cmp", table: "delivery", conds: [{ col: "호수", op: "eq", val: "403" }], join: "and" }],
   },
 };
 
 // 오판의 결과: 그 층 도장이 틀렸으면 두 층 뒤(8층 이후 오판은 보고서 직전)에 돌아온다
 const EVENTS = {
   1: { kind: "번짐", from: "무전", text: "1층 주민 민원: 햄스터가 계속 늘어나요. 지난번에 이상 없다고 하셨잖아요?" },
-  2: { kind: "민원", from: "인터폰", text: "202호인데요, 운동 다녀온 걸로 신고하셨어요? 매일 같은 시간에 나가는 건데요." },
+  2: { kind: "민원", from: "인터폰", text: "202호인데요, 문워크 연습한 걸로 신고하셨어요? 매일 같은 시간에 조용히 하는 건데요." },
   3: { kind: "민원", from: "인터폰", text: "302호입니다. 우리 고양이가 상자에 들어간 걸 신고하셨다고요?" },
   4: { kind: "번짐", from: "무전", text: "6층 복도 바닥에 꿀 자국이 이어져 있다. 4층의 곰은 어디로 간 걸까." },
   5: { kind: "민원", from: "인터폰", text: "501호예요. 야광 페인트 칠한 게 그렇게 이상했나요?" },
@@ -215,7 +215,7 @@ const MYSTERY = {
 const REPORT = {
   concept: "그래프로 그려 보기",
   question: "오늘 밤 이상한 일들은 언제 몰려 있었을까? 그래프 하나로 보고하자.",
-  sentence: "출입 시각(출입시)을 ____ 로 그려서 보기",
+  sentence: "출입 시각을 ____ 로 그려서 보기",
   cards: [
     { fill: "histplot",    word: "시간대별 막대그래프", meaning: "몇 건씩 있는지 막대로 봐요" },
     { fill: "boxplot",     word: "상자 그림",           meaning: "보통 범위와 튀는 값을 봐요" },
@@ -234,13 +234,13 @@ const BOARD_OPTIONS = {
   2: {
     t: ["00:40", "20:20", "22:00", "23:10"],   r: ["201호", "202호", "203호"],   w: ["오리", "게코도마뱀", "너구리"],
     s: ["앞으로 걸음", "뒤로 걸음", "제자리에 서 있음"],
-    n: ["1줄", "2줄", "5줄"],                  h: ["20시", "22시", "23시", "3시"],   y: ["Y", "N"],
+    n: ["1줄", "3줄", "5줄"],                  h: ["20시", "22시", "23시", "3시"],   y: ["소리 0", "소리 1", "소리 5", "소리 9"],
   },
   3: {
     t: ["20:05", "20:20", "22:00", "23:10"],   r: ["301호", "302호", "303호"],   w: ["여우", "고양이", "수달"],
     o: ["공", "정육면체", "삼각뿔"],            r2: ["301호", "302호", "303호"],
-    x: ["포도 한 송이", "스크래처 패드", "정육면체 유리 상자 (택배)", "LED 무드등", "물고기 간식"],
-    d: ["19:20", "20:05", "20:20", "20:40"],   t2: ["20:05", "20:20", "22:00", "23:10"],
+    x: ["해바라기씨 한 봉지", "스크래처 패드", "정육면체 유리 상자 (택배)", "건초 한 포대"],
+    d: ["15:30", "20:05", "20:20", "20:40"],   t2: ["20:05", "20:20", "22:00", "23:10"],
   },
   4: {
     t: ["00:40", "01:30", "22:00", "23:10"],   w: ["오소리", "토끼", "사슴", "곰"],
@@ -251,8 +251,8 @@ const BOARD_OPTIONS = {
   5: {
     t: ["00:40", "20:30", "21:00", "22:00"],   r: ["501호", "502호", "503호"],   w: ["고슴도치", "펭귄", "라쿤"],
     g: ["초록빛", "붉은빛", "푸른빛"],          r2: ["501호", "502호", "503호"],
-    d: ["20:12", "20:30", "21:00", "22:14"],
-    x: ["벌레 간식", "야광 페인트 (형광 초록) 3통", "사과 말랭이", "생선 도시락", "얼음 틀"],
+    d: ["18:00", "20:30", "20:40", "21:00"],
+    x: ["벌레 간식", "야광 페인트 (형광 초록) 3통", "사과 말랭이", "손전등 세트"],
     t2: ["00:40", "20:30", "21:00", "22:00"],  on: ["On", "Off"],
   },
   6: {
@@ -261,15 +261,15 @@ const BOARD_OPTIONS = {
     c: ["0건", "1건", "2건", "3건"],            e: ["비어 있음", "채워져 있음"],
   },
   7: {
-    t: ["00:15", "01:30", "02:20", "03:00"],   n: ["토끼가 서 있음", "아무도 없음", "카피바라가 지나감"],
-    w: ["토끼", "카피바라", "알파카"],          t2: ["00:15", "01:30", "02:20", "03:00"],
+    t: ["00:20", "01:05", "01:30", "03:00"],   n: ["토끼가 서 있음", "아무도 없음", "카피바라가 지나감"],
+    w: ["토끼", "카피바라", "알파카"],          t2: ["00:20", "01:05", "01:30", "03:00"],
     r: ["701호", "702호", "703호"],            w2: ["토끼", "카피바라", "알파카"],   on: ["On", "Off"],
   },
   8: {
-    t: ["15:00", "17:12", "18:14", "18:17"],   w: ["오소리", "토끼", "사슴"],   x: ["꿀단지", "상자 더미", "건초 더미"],
-    d: ["2019-03-03", "2026-01-15", "2026-09-10", "2026-11-07"],   d2: ["2019-03-03", "2026-01-15", "2026-09-10", "2026-11-07"],
+    t: ["15:00", "17:12", "18:14", "18:17"],   w: ["오소리", "염소", "사슴"],   x: ["꿀단지", "상자 더미", "건초 더미"],
+    d: ["11-04", "11-05", "11-07", "11-08"],   d2: ["11-04 08:17", "11-07 18:17", "11-08 17:12", "11-08 18:14"],
     r: ["401호", "402호", "403호"],            t2: ["15:00", "17:12", "18:00", "18:14"],
-    item: ["꿀 5kg", "캠핑 랜턴", "이삿짐 상자 12개", "지렁이 간식"],
+    item: ["꿀 5kg", "손전등 세트", "이삿짐 상자 12개", "지렁이 간식"],
   },
   mystery: {
     a: ["18시", "20시", "23시", "3시"],         b: ["18시", "20시", "23시", "3시"],   c: ["드문", "붐비는", "보통인"],

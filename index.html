@@ -15,8 +15,8 @@
       <p class="intro-lead">영상은 거짓말을 해도, 데이터는 거짓말을 안 한다.</p>
       <ol class="intro-rules">
         <li>CCTV 복도를 <b>◀ ▶ 로 둘러보며</b> 이상한 것을 찾는다.</li>
-        <li>책장의 <b>출입표 · 택배장부</b>를 열어, 문장의 빈칸을 골라 기록을 거른다. (코딩을 몰라도 OK, 고급 모드에선 코드를 직접 써도 된다)</li>
-        <li><b>REPORT 보드</b>의 빈칸을 채우고, <b>✓ 정상 / ✗ 신고</b> 를 고른다. 맞았는지는 근무가 끝나야 안다.</li>
+        <li>책장의 <b>출입표 · 택배장부</b>를 열어, 문장의 빈칸을 골라 기록을 필터링한다. (코딩을 몰라도 OK, 고급 모드에선 코드를 직접 써도 된다)</li>
+        <li><b>REPORT 보드</b>의 빈칸을 모두 채운 뒤, <b>✓ 정상 / ✗ 신고</b> 를 고른다. 맞았는지는 근무가 끝나야 안다.</li>
       </ol>
       <p class="intro-note">8층까지 순찰하고 보고서와 마지막 추리를 마치면 근무 완료. 경고장 3장이면 해고!</p>
       <button id="btn-start" class="primary big">야간 근무 시작 ▶</button>
@@ -60,7 +60,11 @@
           <div class="monitor-bezel">
             <div class="cctv" id="view">
               <div id="cctv-screen"></div>
+              <canvas id="cctv-static" class="cctv-static" width="160" height="90" aria-hidden="true"></canvas>
               <div class="cctv-fx" aria-hidden="true"></div>
+              <div id="cctv-flash" class="cctv-flash" aria-hidden="true"></div>
+              <span id="cctv-signal" class="signal hidden">신호 불안정</span>
+              <span id="found-badge" class="found-badge hidden">이상 발견!</span>
               <span class="rec">● REC</span>
               <span id="cctv-cam" class="cam"></span>
               <span id="cctv-time" class="ts"></span>
@@ -128,6 +132,7 @@
   <script src="data.js"></script>
   <script src="boards.js"></script>
   <script src="advanced.js"></script>
+  <script src="portraits.js"></script>
   <script src="investigate.js"></script>
   <script src="vendor/three.min.js"></script>
   <script src="scenes.js"></script>

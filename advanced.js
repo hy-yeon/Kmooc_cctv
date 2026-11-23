@@ -66,7 +66,7 @@ const PyLite = (() => {
     if (typeof x === "boolean" || typeof y === "boolean") { x = Number(x); y = Number(y); }
     if (op === "==") return x === y;
     if (op === "!=") return x !== y;
-    if (typeof x !== typeof y) fail(`숫자와 글자는 크기를 비교할 수 없어요 (TypeError). 숫자 열이면 따옴표 없이 23 처럼, 글자 열이면 '23:10' 처럼 써요.`);
+    if (typeof x !== typeof y) fail(`숫자와 글자는 크기를 비교할 수 없어요 (TypeError). 숫자 열(소리)이면 따옴표 없이 9 처럼, 글자 열이면 '11-08 23:10' 처럼 써요.`);
     return { ">": x > y, ">=": x >= y, "<": x < y, "<=": x <= y }[op];
   }
   function compare(a, op, b) {
@@ -83,7 +83,7 @@ const PyLite = (() => {
   }
   const isBoolSeries = (v) => kindOf(v) === "series" && v.vals.every((x) => typeof x === "boolean");
   function logic(a, b, op) {
-    const hint = "& 와 | 는 조건(참/거짓 열)끼리 이어요. 조건마다 괄호로 묶어 주세요. 예) (df_entry['운동'] == 'Y') & (df_entry['소리'] >= 5)";
+    const hint = "& 와 | 는 조건(참/거짓 열)끼리 이어요. 조건마다 괄호로 묶어 주세요. 예) (df_entry['동물'] == '게코도마뱀') & (df_entry['소리'] == 1)";
     if (typeof a === "boolean" && typeof b === "boolean") return op === "&" ? a && b : a || b;
     if (!isBoolSeries(a) || !isBoolSeries(b)) fail(hint);
     if (a.vals.length !== b.vals.length) fail("길이가 다른 두 조건은 이을 수 없어요. 같은 표의 조건끼리 이어요.");
@@ -109,7 +109,7 @@ const PyLite = (() => {
         return fn === "max" ? (gt ? b : a) : (gt || b === a ? a : b);
       });
     }
-    if (!allNum && !nn.every((v) => typeof v === "boolean")) fail(`.${fn}() 는 숫자 열에서만 쓸 수 있어요. (출입시 · 소리 · 나이)`);
+    if (!allNum && !nn.every((v) => typeof v === "boolean")) fail(`.${fn}() 는 숫자 열에서만 쓸 수 있어요. (소리)`);
     const nums = nn.map(Number);
     if (fn === "sum") return nums.reduce((a, b) => a + b, 0);
     if (fn === "mean") return nums.reduce((a, b) => a + b, 0) / nums.length;
@@ -130,7 +130,7 @@ const PyLite = (() => {
       if (k === "string") return column(obj, key);
       if (k === "list") { key.forEach((c) => column(obj, c)); return DF(key.slice(), obj.rows); }
       if (k === "series") {
-        if (!isBoolSeries(key)) fail("대괄호 안에는 조건(참/거짓 열)을 넣어요. 예) df_entry[ df_entry['동물종류'] == '햄스터' ]");
+        if (!isBoolSeries(key)) fail("대괄호 안에는 조건(참/거짓 열)을 넣어요. 예) df_entry[ df_entry['동물'] == '햄스터' ]");
         if (key.vals.length !== obj.rows.length) fail("다른 표의 조건으로는 거를 수 없어요. 같은 표의 열로 조건을 만들어요.");
         return DF(obj.cols, obj.rows.filter((_, i) => key.vals[i]));
       }

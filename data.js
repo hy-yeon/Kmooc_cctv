@@ -2,11 +2,11 @@
 // data.js  — 담당: B (콘텐츠 & 연출)
 //
 // ▶ 모든 스테이지가 "같은 데이터"를 본다. 표는 2개:
-//     출입표(df_entry, 82행) + 택배장부(df_delivery, 38행) = 120행
-// ▶ 구성: RESIDENTS(주민 명부) + ENTRY_LOGS / DELIVERY_LOGS(기록) → 합쳐서 표 생성
-// ▶ 각 행에는 그 주민의 정보(호수·동물종류·주민등록번호·나이·학생여부·입주날짜·운동시설)가 붙는다.
-//    주민 이름 열은 없다. (RESIDENTS.key 는 이 파일 안에서만 쓰는 식별용)
-// ▶ 열 이름은 pandas 에서 그대로 입력하므로 공백 없이 짧게 지었다.
+//     출입표(df_entry, 30행) + 택배장부(df_delivery, 20행)
+// ▶ 구성: RESIDENTS(주민 10마리) + ENTRY_LOGS / DELIVERY_LOGS(기록) → 합쳐서 표 생성
+// ▶ 출입표 열: 출입시간 · 빛감지 · 소리 · 호수 · 동물 · 주민등록번호
+//   택배장부 열: 배달도착날짜 · 배달주문날짜 · 제품 · 호수 · 동물
+// ▶ 열 이름은 고급 모드에서 그대로 입력하므로 공백 없이 지었다.
 //
 // 판정 기준 (전 층 공통)
 //   answer "next"   = 데이터가 영상 속 현상을 설명함 (정상)
@@ -16,213 +16,116 @@
 // ============================================================
 
 // ---------- 1) 열 이름 (pandas 열 이름 = 화면에 보이는 열 이름) ----------
-const RESIDENT_COLUMNS = ["호수", "동물종류", "주민등록번호", "나이", "학생여부", "입주날짜", "운동"];
-const ENTRY_COLUMNS    = ["출입시간", "출입시", "빛감지", "소리", ...RESIDENT_COLUMNS];   // 출입시: 출입시간의 시(0~23, 숫자), 빛감지: On/Off, 소리: 0~10
-const DELIVERY_COLUMNS = ["배달도착시간", "배달제품", ...RESIDENT_COLUMNS];
+// 출입표: 빛감지 On/Off, 소리 0~10
+const ENTRY_COLUMNS    = ["출입시간", "빛감지", "소리", "호수", "동물", "주민등록번호"];
+const DELIVERY_COLUMNS = ["배달도착날짜", "배달주문날짜", "제품", "호수", "동물"];
 
-// ---------- 2) 주민 명부 (22명) ----------
-// 주민등록번호 뒷자리는 가렸다(******). 나이 = 2026 - 출생연도
+// ---------- 2) 주민 명부 (10마리) ----------
+// 주민등록번호 뒷자리는 가렸다(******). 101호 햄스터 두 마리는 번호가 달라서 서로 다른 주민이다.
 const RESIDENTS = [
-  // 1층
-  { key: "밤톨", room: "101", animal: "햄스터",     rrn: "250614-3******", age: 1, student: "Y", moveIn: "2026-09-10", gym: "N" },
-  { key: "콩이", room: "101", animal: "햄스터",     rrn: "250921-4******", age: 1, student: "Y", moveIn: "2026-09-10", gym: "N" },
-  { key: "하양", room: "102", animal: "토끼",       rrn: "230305-4******", age: 3, student: "N", moveIn: "2024-03-15", gym: "Y" },
-  { key: "도토", room: "103", animal: "다람쥐",     rrn: "240718-3******", age: 2, student: "Y", moveIn: "2025-02-01", gym: "Y" },
-  // 2층
-  { key: "꽥이", room: "201", animal: "오리",       rrn: "220211-3******", age: 4, student: "N", moveIn: "2023-05-20", gym: "N" },
-  { key: "코코", room: "202", animal: "게코도마뱀", rrn: "230829-4******", age: 3, student: "Y", moveIn: "2024-10-01", gym: "Y" },
-  { key: "구리", room: "203", animal: "너구리",     rrn: "200123-3******", age: 6, student: "N", moveIn: "2021-04-12", gym: "N" },
-  // 3층
-  { key: "여리", room: "301", animal: "여우",       rrn: "210930-4******", age: 5, student: "N", moveIn: "2022-06-18", gym: "Y" },
-  { key: "나비", room: "302", animal: "고양이",     rrn: "220415-4******", age: 4, student: "N", moveIn: "2023-09-03", gym: "N" },
-  { key: "둥이", room: "303", animal: "수달",       rrn: "240612-3******", age: 2, student: "Y", moveIn: "2025-08-25", gym: "Y" },
-  // 4층
-  { key: "뚝이", room: "401", animal: "오소리",     rrn: "190507-3******", age: 7, student: "N", moveIn: "2020-01-10", gym: "N" },
-  { key: "달이", room: "402", animal: "토끼",       rrn: "230101-4******", age: 3, student: "Y", moveIn: "2024-07-07", gym: "N" },
-  { key: "루돌", room: "403", animal: "사슴",       rrn: "220822-3******", age: 4, student: "N", moveIn: "2026-11-07", gym: "Y" },
-  // 5층
-  { key: "가시", room: "501", animal: "고슴도치",   rrn: "241105-3******", age: 2, student: "Y", moveIn: "2025-04-04", gym: "N" },
-  { key: "뒤뚱", room: "502", animal: "펭귄",       rrn: "200318-3******", age: 6, student: "N", moveIn: "2021-12-01", gym: "Y" },
-  { key: "복면", room: "503", animal: "라쿤",       rrn: "230710-4******", age: 3, student: "N", moveIn: "2024-05-30", gym: "N" },
-  // 6층 (601~603만 입주. 604 이상은 빈 호실)
-  { key: "메메", room: "601", animal: "염소",       rrn: "180214-3******", age: 8, student: "N", moveIn: "2019-03-03", gym: "N" },
-  { key: "몽실", room: "602", animal: "양",         rrn: "210412-4******", age: 5, student: "N", moveIn: "2022-10-10", gym: "Y" },
-  { key: "쪼르", room: "603", animal: "다람쥐",     rrn: "250830-3******", age: 1, student: "Y", moveIn: "2026-01-15", gym: "N" },
-  // 7층
-  { key: "깡총", room: "701", animal: "토끼",       rrn: "240220-4******", age: 2, student: "Y", moveIn: "2025-06-06", gym: "Y" },
-  { key: "바라", room: "702", animal: "카피바라",   rrn: "200925-3******", age: 6, student: "N", moveIn: "2021-08-18", gym: "N" },
-  { key: "파카", room: "703", animal: "알파카",     rrn: "220630-4******", age: 4, student: "N", moveIn: "2023-02-27", gym: "Y" },
+  { key: "밤톨", room: "101", animal: "햄스터",     rrn: "250614-3******" },
+  { key: "콩이", room: "101", animal: "햄스터",     rrn: "250921-4******" },
+  { key: "하양", room: "102", animal: "토끼",       rrn: "230305-4******" },
+  { key: "코코", room: "202", animal: "게코도마뱀", rrn: "230829-4******" },
+  { key: "나비", room: "302", animal: "고양이",     rrn: "220415-4******" },
+  { key: "뚝이", room: "401", animal: "오소리",     rrn: "190507-3******" },
+  { key: "루돌", room: "403", animal: "사슴",       rrn: "220822-3******" },   // 11-07 에 이사 왔다 (8층)
+  { key: "가시", room: "501", animal: "고슴도치",   rrn: "241105-3******" },
+  { key: "메메", room: "601", animal: "염소",       rrn: "180214-3******" },   // 6층은 601~603호뿐
+  { key: "바라", room: "702", animal: "카피바라",   rrn: "200925-3******" },
 ];
 
 // ---------- 3) 기록 ----------
 // who: 주민 key (없으면 null = 미등록 출입). 미등록이어도 room 은 직접 적을 수 있음(예: 607).
-// 출입 기록: entry / light / sound,  배달 기록: dTime / dItem
-// id 는 화면에 안 보이고, 판정 후 근거 행을 노랗게 표시할 때만 쓴다.
+// 출입 기록: entry / light / sound,  배달 기록: arrive(도착 날짜·시각) / order(주문 날짜) / item
+// id 는 화면에 안 보인다. 층별 근거(FLOORS.evidence)를 가리킬 때 쓴다.
 const ENTRY_LOGS = [
-  // ----- 각 층 판정 근거 + 방해용 행 (E01~E20) -----
-  { id: "E01", who: "밤톨", entry: "11-08 23:10", light: "Off", sound: 2 },
+  // ----- 층별 판정 근거 -----
+  { id: "E01", who: "밤톨", entry: "11-08 23:10", light: "Off", sound: 2 },   // 1층: 햄스터 출입은 이 2줄뿐
   { id: "E02", who: "콩이", entry: "11-08 23:12", light: "Off", sound: 2 },
-  { id: "E03", who: "코코", entry: "11-04 22:00", light: "Off", sound: 1 },
-  { id: "E04", who: "코코", entry: "11-05 22:01", light: "Off", sound: 1 },
-  { id: "E05", who: "코코", entry: "11-06 22:00", light: "Off", sound: 2 },
-  { id: "E06", who: "코코", entry: "11-07 22:00", light: "Off", sound: 1 },
-  { id: "E07", who: "코코", entry: "11-08 22:00", light: "Off", sound: 1 },
-  { id: "E08", who: "나비", entry: "11-08 20:20", light: "Off", sound: 2 },
-  { id: "E09", who: null, entry: "11-09 00:40", light: "Off", sound: 9 },
-  { id: "E10", who: "가시", entry: "11-08 21:00", light: "On", sound: 2 },
-  { id: "E11", who: null, room: "607", entry: "11-09 03:00", light: "Off", sound: 9 },   // ver8: 소리 3 → 9 (4층 00:40 과 같은 "소리 최대" 흔적)
-  { id: "E12", who: "바라", entry: "11-09 01:30", light: "On", sound: 0 },    // ver8: 소리 2 → 0 (빛은 있는데 소리는 없음)
-  { id: "E13", who: "구리", entry: "11-08 20:50", light: "On", sound: 2 },
-  { id: "E14", who: "둥이", entry: "11-08 19:40", light: "On", sound: 3 },
-  { id: "E15", who: "달이", entry: "11-07 21:30", light: "On", sound: 3 },
-  { id: "E16", who: "깡총", entry: "11-06 20:30", light: "On", sound: 2 },
-  { id: "E17", who: "복면", entry: "11-09 00:15", light: "Off", sound: 5 },
-  { id: "E18", who: "쪼르", entry: "11-09 00:20", light: "Off", sound: 4 },
-  { id: "E19", who: "하양", entry: "11-09 01:05", light: "Off", sound: 2 },
-  { id: "E20", who: "도토", entry: "11-09 02:20", light: "Off", sound: 3 },
-  // ----- 일반 기록 (정상 패턴) -----
-  { id: "E44", who: "둥이", entry: "11-04 07:18", light: "Off", sound: 3 },
-  { id: "E59", who: "뒤뚱", entry: "11-04 07:37", light: "Off", sound: 1 },
-  { id: "E65", who: "메메", entry: "11-04 08:17", light: "Off", sound: 3 },
-  { id: "E32", who: "꽥이", entry: "11-04 12:08", light: "Off", sound: 5 },
-  { id: "E72", who: "쪼르", entry: "11-04 14:29", light: "Off", sound: 6 },
-  { id: "E28", who: "도토", entry: "11-04 18:51", light: "Off", sound: 3 },
-  { id: "E22", who: "하양", entry: "11-04 20:20", light: "Off", sound: 2 },
-  { id: "E47", who: "뚝이", entry: "11-04 20:27", light: "Off", sound: 1 },
-  { id: "E38", who: "여리", entry: "11-04 21:03", light: "Off", sound: 2 },
-  { id: "E33", who: "구리", entry: "11-04 21:08", light: "Off", sound: 3 },
-  { id: "E78", who: "바라", entry: "11-04 21:23", light: "Off", sound: 1 },
-  { id: "E62", who: "복면", entry: "11-04 21:46", light: "Off", sound: 4 },
-  { id: "E68", who: "몽실", entry: "11-04 22:31", light: "Off", sound: 3 },
-  { id: "E50", who: "달이", entry: "11-04 22:43", light: "Off", sound: 5 },
-  { id: "E80", who: "파카", entry: "11-04 23:33", light: "Off", sound: 2 },
-  { id: "E73", who: "쪼르", entry: "11-05 14:10", light: "Off", sound: 6 },
-  { id: "E23", who: "하양", entry: "11-05 18:05", light: "Off", sound: 2 },
-  { id: "E42", who: "나비", entry: "11-05 18:58", light: "Off", sound: 2 },
-  { id: "E27", who: "도토", entry: "11-05 19:31", light: "Off", sound: 2 },
-  { id: "E61", who: "뒤뚱", entry: "11-05 20:02", light: "Off", sound: 2 },
-  { id: "E58", who: "가시", entry: "11-05 20:12", light: "Off", sound: 3 },
-  { id: "E30", who: "꽥이", entry: "11-05 20:13", light: "Off", sound: 4 },
-  { id: "E36", who: "구리", entry: "11-05 21:15", light: "Off", sound: 2 },
-  { id: "E48", who: "뚝이", entry: "11-05 21:24", light: "Off", sound: 2 },
-  { id: "E63", who: "복면", entry: "11-05 22:06", light: "Off", sound: 3 },
-  { id: "E81", who: "파카", entry: "11-05 22:12", light: "Off", sound: 4 },
-  { id: "E40", who: "여리", entry: "11-05 22:28", light: "Off", sound: 3 },
-  { id: "E69", who: "몽실", entry: "11-05 23:09", light: "Off", sound: 2 },
-  { id: "E46", who: "둥이", entry: "11-05 23:20", light: "Off", sound: 2 },
-  { id: "E34", who: "구리", entry: "11-06 08:41", light: "Off", sound: 1 },
-  { id: "E41", who: "나비", entry: "11-06 19:45", light: "Off", sound: 3 },
-  { id: "E29", who: "꽥이", entry: "11-06 19:52", light: "Off", sound: 3 },
-  { id: "E39", who: "여리", entry: "11-06 21:02", light: "Off", sound: 4 },
-  { id: "E76", who: "깡총", entry: "11-06 21:44", light: "Off", sound: 3 },
-  { id: "E70", who: "몽실", entry: "11-06 22:08", light: "Off", sound: 2 },
-  { id: "E26", who: "도토", entry: "11-06 22:25", light: "Off", sound: 2 },
-  { id: "E66", who: "메메", entry: "11-06 22:42", light: "Off", sound: 1 },
-  { id: "E45", who: "둥이", entry: "11-06 23:40", light: "Off", sound: 3 },
-  { id: "E60", who: "뒤뚱", entry: "11-07 07:14", light: "Off", sound: 3 },
-  { id: "E71", who: "쪼르", entry: "11-07 14:05", light: "Off", sound: 5 },
-  { id: "E54", who: "루돌", entry: "11-07 18:17", light: "Off", sound: 3 },
-  { id: "E77", who: "바라", entry: "11-07 19:04", light: "Off", sound: 1 },
-  { id: "E25", who: "도토", entry: "11-07 19:46", light: "Off", sound: 1 },
-  { id: "E21", who: "하양", entry: "11-07 20:57", light: "Off", sound: 3 },
-  { id: "E75", who: "깡총", entry: "11-07 21:35", light: "Off", sound: 2 },
-  { id: "E56", who: "가시", entry: "11-07 22:14", light: "Off", sound: 3 },
-  { id: "E67", who: "메메", entry: "11-07 22:15", light: "Off", sound: 3 },
-  { id: "E51", who: "달이", entry: "11-07 23:40", light: "Off", sound: 4 },
-  { id: "E52", who: "달이", entry: "11-08 08:39", light: "Off", sound: 6 },
-  { id: "E35", who: "구리", entry: "11-08 08:45", light: "Off", sound: 2 },
-  { id: "E31", who: "꽥이", entry: "11-08 12:02", light: "Off", sound: 4 },
+  { id: "E03", who: "코코", entry: "11-06 22:00", light: "Off", sound: 1 },   // 2층: 매일 밤 10시, 늘 소리 1 (조용한 문워크 연습)
+  { id: "E04", who: "코코", entry: "11-07 22:00", light: "Off", sound: 1 },
+  { id: "E05", who: "코코", entry: "11-08 22:00", light: "Off", sound: 1 },
+  { id: "E08", who: "나비", entry: "11-08 20:20", light: "Off", sound: 2 },   // 3층: 상자 도착 15분 뒤
+  { id: "E09", who: null,   entry: "11-09 00:40", light: "Off", sound: 9 },   // 4층: 주민 정보 없음 + 소리 최대
+  { id: "E10", who: "가시", entry: "11-08 21:00", light: "On",  sound: 2 },   // 5층: 야광 페인트
+  { id: "E11", who: null, room: "607", entry: "11-09 03:00", light: "Off", sound: 9 },   // 6층: 없는 호실
+  { id: "E12", who: "바라", entry: "11-09 01:30", light: "On",  sound: 0 },   // 7층: 빛은 있는데 소리는 없음
+  { id: "E54", who: "루돌", entry: "11-07 18:17", light: "Off", sound: 3 },   // 8층: 사슴의 첫 출입 (이삿짐 도착 날)
   { id: "E55", who: "루돌", entry: "11-08 17:12", light: "Off", sound: 3 },
   { id: "E53", who: "루돌", entry: "11-08 18:14", light: "Off", sound: 1 },
-  { id: "E43", who: "나비", entry: "11-08 18:53", light: "Off", sound: 3 },
-  { id: "E57", who: "가시", entry: "11-08 19:15", light: "Off", sound: 2 },
-  { id: "E74", who: "깡총", entry: "11-08 20:39", light: "Off", sound: 3 },
+  // ----- 방해용 · 일반 기록 -----
+  { id: "E13", who: "뚝이", entry: "11-08 20:50", light: "On",  sound: 2 },   // 손전등 세트 (빛감지 On 이 다른 이유)
+  { id: "E16", who: "하양", entry: "11-06 20:30", light: "On",  sound: 2 },   // 크리스마스 전구
+  { id: "E18", who: "메메", entry: "11-09 00:20", light: "Off", sound: 4 },   // 늦은 밤이지만 주민
+  { id: "E19", who: "하양", entry: "11-09 01:05", light: "Off", sound: 2 },
+  { id: "E65", who: "메메", entry: "11-04 08:17", light: "Off", sound: 3 },
+  { id: "E22", who: "하양", entry: "11-04 20:20", light: "Off", sound: 2 },
+  { id: "E47", who: "뚝이", entry: "11-04 20:27", light: "Off", sound: 1 },
+  { id: "E78", who: "바라", entry: "11-04 21:23", light: "Off", sound: 1 },
+  { id: "E42", who: "나비", entry: "11-05 18:58", light: "Off", sound: 2 },
+  { id: "E58", who: "가시", entry: "11-05 20:12", light: "Off", sound: 3 },
+  { id: "E48", who: "뚝이", entry: "11-05 21:24", light: "Off", sound: 2 },
+  { id: "E41", who: "나비", entry: "11-06 19:45", light: "Off", sound: 3 },
+  { id: "E43", who: "나비", entry: "11-07 19:10", light: "Off", sound: 3 },
+  { id: "E56", who: "가시", entry: "11-07 22:14", light: "Off", sound: 3 },
+  { id: "E67", who: "메메", entry: "11-07 22:15", light: "Off", sound: 3 },
   { id: "E24", who: "하양", entry: "11-08 20:45", light: "Off", sound: 2 },
-  { id: "E64", who: "복면", entry: "11-08 21:14", light: "Off", sound: 5 },
-  { id: "E49", who: "뚝이", entry: "11-08 21:19", light: "Off", sound: 3 },
-  { id: "E37", who: "여리", entry: "11-08 21:26", light: "Off", sound: 4 },
   { id: "E79", who: "바라", entry: "11-08 22:42", light: "Off", sound: 3 },
-  { id: "E82", who: "파카", entry: "11-08 23:37", light: "Off", sound: 4 },
 ];
 
 const DELIVERY_LOGS = [
-  // ----- 각 층 판정 근거 + 방해용 행 (D01~D10) -----
-  { id: "D01", who: "나비", dTime: "11-08 20:05", dItem: "정육면체 유리 상자 (택배)" },
-  { id: "D02", who: "뚝이", dTime: "11-08 18:00", dItem: "꿀 5kg" },
-  { id: "D03", who: "가시", dTime: "11-08 20:30", dItem: "야광 페인트 (형광 초록) 3통" },
-  { id: "D04", who: "구리", dTime: "11-08 20:40", dItem: "손전등 세트" },
-  { id: "D05", who: "둥이", dTime: "11-08 19:20", dItem: "LED 무드등" },
-  { id: "D06", who: "달이", dTime: "11-07 21:10", dItem: "캠핑 랜턴" },
-  { id: "D07", who: "깡총", dTime: "11-06 20:10", dItem: "크리스마스 전구" },
-  { id: "D08", who: "루돌", dTime: "11-07 15:00", dItem: "이삿짐 상자 12개" },
-  { id: "D09", who: "코코", dTime: "11-08 15:30", dItem: "귀뚜라미 간식" },
-  { id: "D10", who: "밤톨", dTime: "11-08 12:30", dItem: "해바라기씨 한 봉지" },
+  // ----- 층별 판정 근거 · 방해용 -----
+  { id: "D01", who: "나비", arrive: "11-08 20:05", order: "11-06", item: "정육면체 유리 상자 (택배)" },   // 3층
+  { id: "D02", who: "뚝이", arrive: "11-08 18:00", order: "11-07", item: "꿀 5kg" },                     // 4층: 꿀은 설명돼도 곰은 아니다
+  { id: "D03", who: "가시", arrive: "11-08 20:30", order: "11-07", item: "야광 페인트 (형광 초록) 3통" }, // 5층
+  { id: "D04", who: "뚝이", arrive: "11-08 20:40", order: "11-06", item: "손전등 세트" },
+  { id: "D07", who: "하양", arrive: "11-06 20:10", order: "11-04", item: "크리스마스 전구" },
+  { id: "D08", who: "루돌", arrive: "11-07 15:00", order: "11-05", item: "이삿짐 상자 12개" },           // 8층
+  { id: "D09", who: "코코", arrive: "11-08 15:30", order: "11-06", item: "귀뚜라미 간식" },
+  { id: "D10", who: "밤톨", arrive: "11-08 12:30", order: "11-07", item: "해바라기씨 한 봉지" },
   // ----- 일반 배달 -----
-  { id: "D13", who: "꽥이", dTime: "11-04 11:20", dItem: "개구리밥 한 포대" },
-  { id: "D20", who: "가시", dTime: "11-05 09:51", dItem: "벌레 간식" },
-  { id: "D26", who: "깡총", dTime: "11-05 10:04", dItem: "상추 박스" },
-  { id: "D33", who: "나비", dTime: "11-05 13:57", dItem: "스크래처 패드" },
-  { id: "D16", who: "나비", dTime: "11-05 14:28", dItem: "스크래처 패드" },
-  { id: "D36", who: "달이", dTime: "11-05 15:01", dItem: "건초 한 포대" },
-  { id: "D14", who: "구리", dTime: "11-05 17:53", dItem: "생선 통조림" },
-  { id: "D37", who: "가시", dTime: "11-05 18:41", dItem: "사과 말랭이" },
-  { id: "D18", who: "뚝이", dTime: "11-06 09:37", dItem: "지렁이 간식" },
-  { id: "D38", who: "뒤뚱", dTime: "11-06 10:55", dItem: "얼음 틀" },
-  { id: "D23", who: "메메", dTime: "11-06 11:38", dItem: "건초 한 포대" },
-  { id: "D34", who: "둥이", dTime: "11-06 14:11", dItem: "물고기 간식" },
-  { id: "D32", who: "여리", dTime: "11-06 19:24", dItem: "포도 한 송이" },
-  { id: "D28", who: "하양", dTime: "11-07 09:28", dItem: "건초 한 포대" },
-  { id: "D22", who: "복면", dTime: "11-07 12:01", dItem: "세척용 대야" },
-  { id: "D12", who: "도토", dTime: "11-07 14:30", dItem: "도토리 한 봉지" },
-  { id: "D25", who: "쪼르", dTime: "11-07 14:42", dItem: "호두 한 봉지" },
-  { id: "D15", who: "여리", dTime: "11-07 15:00", dItem: "포도 한 송이" },
-  { id: "D11", who: "하양", dTime: "11-07 16:15", dItem: "상추 박스" },
-  { id: "D17", who: "둥이", dTime: "11-07 16:35", dItem: "조개 한 봉지" },
-  { id: "D30", who: "꽥이", dTime: "11-08 10:39", dItem: "개구리밥 한 포대" },
-  { id: "D21", who: "뒤뚱", dTime: "11-08 12:26", dItem: "생선 도시락" },
-  { id: "D19", who: "달이", dTime: "11-08 13:47", dItem: "상추 박스" },
-  { id: "D31", who: "구리", dTime: "11-08 14:10", dItem: "사과 박스" },
-  { id: "D24", who: "몽실", dTime: "11-08 14:19", dItem: "양모 브러시" },
-  { id: "D35", who: "뚝이", dTime: "11-08 15:10", dItem: "도토리 묵" },
-  { id: "D29", who: "도토", dTime: "11-08 16:48", dItem: "땅콩 쿠키" },
-  { id: "D27", who: "파카", dTime: "11-08 18:53", dItem: "건초 한 포대" },
-  // ver8: 존재하지 않는 607호로 온 배달 (주민 정보 없음). 큰 미스터리의 보상 단서
-  { id: "D99", who: null, room: "607", dTime: "11-08 23:30", dItem: "전신 거울" },
+  { id: "D11", who: "밤톨", arrive: "11-04 13:00", order: "11-02", item: "톱밥 깔개" },
+  { id: "D20", who: "가시", arrive: "11-05 09:51", order: "11-03", item: "벌레 간식" },
+  { id: "D12", who: "코코", arrive: "11-05 11:00", order: "11-03", item: "귀뚜라미 간식" },
+  { id: "D16", who: "나비", arrive: "11-05 14:28", order: "11-03", item: "스크래처 패드" },
+  { id: "D37", who: "가시", arrive: "11-05 18:41", order: "11-04", item: "사과 말랭이" },
+  { id: "D18", who: "뚝이", arrive: "11-06 09:37", order: "11-04", item: "지렁이 간식" },
+  { id: "D23", who: "메메", arrive: "11-06 11:38", order: "11-04", item: "건초 한 포대" },
+  { id: "D13", who: "바라", arrive: "11-07 12:00", order: "11-05", item: "수박 한 통" },
+  { id: "D21", who: "하양", arrive: "11-07 16:15", order: "11-05", item: "상추 박스" },
+  { id: "D24", who: "메메", arrive: "11-08 09:30", order: "11-06", item: "건초 한 포대" },
+  { id: "D35", who: "뚝이", arrive: "11-08 15:10", order: "11-06", item: "도토리 묵" },
+  // 존재하지 않는 607호로 온 배달 (주민 정보도, 주문 날짜도 없다). 큰 미스터리의 단서
+  { id: "D99", who: null, room: "607", arrive: "11-08 23:30", order: null, item: "전신 거울" },
 ];
 
 // ---------- 4) 로그 + 주민 정보를 합쳐서 표 만들기 ----------
-function residentCells(l) {
-  const r = RESIDENTS.find((x) => x.key === l.who) || null;
+// 화면에 안 보이는 칸: id, who(주민 key, 책 페이지를 나눌 때 쓴다), 출입시(그래프용 숫자)
+function residentOf(l) { return RESIDENTS.find((x) => x.key === l.who) || null; }
+
+const ENTRY_ROWS = ENTRY_LOGS.map((l) => {
+  const r = residentOf(l);
   return {
-    호수: r ? r.room : l.room ?? null,
-    동물종류: r ? r.animal : null,
-    주민등록번호: r ? r.rrn : null,
-    나이: r ? r.age : null,
-    학생여부: r ? r.student : null,
-    입주날짜: r ? r.moveIn : null,
-    운동: r ? r.gym : null,          // 열 이름(RESIDENT_COLUMNS 의 "운동")과 같아야 표에 값이 나온다
+    id: l.id, who: l.who,
+    출입시간: l.entry, 빛감지: l.light, 소리: l.sound,
+    호수: r ? r.room : l.room ?? null, 동물: r ? r.animal : null, 주민등록번호: r ? r.rrn : null,
+    출입시: Number(l.entry.slice(6, 8)),
   };
-}
+}).sort((a, b) => (a.출입시간 < b.출입시간 ? -1 : a.출입시간 > b.출입시간 ? 1 : a.id < b.id ? -1 : 1));
 
-const ENTRY_ROWS = ENTRY_LOGS.map((l) => ({
-  id: l.id,
-  출입시간: l.entry,
-  출입시: Number(l.entry.slice(6, 8)),      // "11-08 23:10" → 23 (그래프용 숫자 열)
-  빛감지: l.light,
-  소리: l.sound,
-  ...residentCells(l),
-})).sort((a, b) => (a.출입시간 < b.출입시간 ? -1 : a.출입시간 > b.출입시간 ? 1 : a.id < b.id ? -1 : 1));
+const DELIVERY_ROWS = DELIVERY_LOGS.map((l) => {
+  const r = residentOf(l);
+  return {
+    id: l.id, who: l.who,
+    배달도착날짜: l.arrive, 배달주문날짜: l.order ?? null, 제품: l.item,
+    호수: r ? r.room : l.room ?? null, 동물: r ? r.animal : null,
+  };
+}).sort((a, b) => (a.배달도착날짜 < b.배달도착날짜 ? -1 : a.배달도착날짜 > b.배달도착날짜 ? 1 : a.id < b.id ? -1 : 1));
 
-const DELIVERY_ROWS = DELIVERY_LOGS.map((l) => ({
-  id: l.id,
-  배달도착시간: l.dTime,
-  배달제품: l.dItem,
-  ...residentCells(l),
-})).sort((a, b) => (a.배달도착시간 < b.배달도착시간 ? -1 : a.배달도착시간 > b.배달도착시간 ? 1 : a.id < b.id ? -1 : 1));
-
-// 게임/파이썬이 읽는 표 목록. varName = 플레이어가 입력창에 쓰는 변수 이름
+// 게임/고급 모드가 읽는 표 목록. varName = 고급 모드에서 쓰는 변수 이름
 const TABLES = [
-  { key: "entry",    title: "출입표", varName: "df_entry",    columns: ENTRY_COLUMNS,    rows: ENTRY_ROWS },
+  { key: "entry",    title: "출입표",   varName: "df_entry",    columns: ENTRY_COLUMNS,    rows: ENTRY_ROWS },
   { key: "delivery", title: "택배장부", varName: "df_delivery", columns: DELIVERY_COLUMNS, rows: DELIVERY_ROWS },
 ];
 
@@ -247,9 +150,9 @@ const FLOORS = [
     cctvTime: "11-08 22:00",
     cctvCaption: "게코도마뱀이 뒤로 미끄러지듯 걷고 있다.",
     answer: "next",
-    evidence: ["E03", "E04", "E05", "E06", "E07"],
+    evidence: ["E03", "E04", "E05"],
     explanation:
-      "202호 게코는 운동시설 사용 Y이고, 5일 연속 밤 10시에 출입했어요. 소리도 늘 1~2로 조용해요. 매일 하는 습관(문워크 연습)이니 정상! → TO NEXT FLOOR",
+      "202호 게코는 3일 연속 밤 10시에 출입했고, 소리는 늘 1로 아주 조용해요. 미끄러지듯 조용히 걷는 문워크 연습 습관이니 정상! → TO NEXT FLOOR",
   },
   {
     floor: 3,
@@ -271,7 +174,7 @@ const FLOORS = [
     answer: "report",
     evidence: ["E09", "D02"],
     explanation:
-      "동물종류에 '곰'은 두 표 어디에도 없어요. 00:40 출입 행은 호수·동물종류·주민등록번호가 전부 NaN(빈 값)이고, 소리 9는 전체 최댓값이에요. 꿀은 401호(오소리) 배달분일 수 있어도 곰은 설명되지 않아요 → REPORT",
+      "동물에 '곰'은 두 표 어디에도 없어요. 00:40 출입 행은 호수·동물·주민등록번호가 전부 NaN(빈 값)이고, 소리 9는 전체 최댓값이에요. 꿀은 401호(오소리) 배달분일 수 있어도 곰은 설명되지 않아요 → REPORT",
   },
   {
     floor: 5,
@@ -293,7 +196,7 @@ const FLOORS = [
     answer: "report",
     evidence: ["E11"],
     explanation:
-      "6층 주민은 601~603호뿐인데, 03:00에 '607호' 출입 기록이 있고 동물종류 등 주민 정보가 전부 비어 있어요. 명단에 없는 호실이니 데이터가 설명하지 못해요 → REPORT",
+      "6층 주민은 601~603호뿐인데, 03:00에 '607호' 출입 기록이 있고 동물 등 주민 정보가 전부 비어 있어요. 명단에 없는 호실이니 데이터가 설명하지 못해요 → REPORT",
   },
   {
     floor: 7,
@@ -316,7 +219,7 @@ const FLOORS = [
     answer: "next",
     evidence: ["D08", "E54", "E55", "E53"],
     explanation:
-      "동물별 입주날짜를 보면 사슴(403호)만 2026-11-07로 가장 최근이에요. 같은 날 15:00에 '이삿짐 상자 12개'가 배달됐고 그 뒤로 사슴이 출입했어요. 낯선 건 이상해서가 아니라 어제 이사 온 새 이웃이라서! → TO NEXT FLOOR",
+      "사슴(403호)의 가장 이른 출입은 11-07 18:17이고, 같은 날 15:00에 '이삿짐 상자 12개'가 도착했어요. 그 전에는 사슴의 기록이 없어요. 낯선 건 이상해서가 아니라 11-07에 이사 온 새 이웃이라서! → TO NEXT FLOOR",
   },
 ];
 
